@@ -153,18 +153,3 @@ The AI output is a recommendation, not a decision-maker. It may misclassify ambi
 - Export correction rows back into `data/eval/` after human review.
 - Add provider abstraction for Azure/OpenAI, Bedrock, or on-prem models.
 
-## How to Contribute
-
-Beginner teammates should pick one packet from `docs/beginner-tasks/` after Mohammad shares the repo link. Each packet is intentionally small and should be done from the contributor's own machine and GitHub identity.
-
-```bash
-git pull
-# ...make the small edits described in your packet...
-ruff check .            # and run the module tests
-git -c user.name="<Your Name>" \
-    -c user.email="<your GitHub no-reply email>" \
-    commit -m "feat(...): <your packet step>"
-git push
-```
-
-If an install breaks after your change, revert your last commit, rerun the tests, and ask for review with the failing output.
