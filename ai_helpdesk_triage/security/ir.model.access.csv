@@ -1,0 +1,7 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_ai_helpdesk_ticket_user,ai.helpdesk.ticket.user,model_ai_helpdesk_ticket,group_helpdesk_user,1,1,1,0
+access_ai_helpdesk_ticket_manager,ai.helpdesk.ticket.manager,model_ai_helpdesk_ticket,group_helpdesk_manager,1,1,1,1
+access_ai_helpdesk_team_user,ai.helpdesk.team.user,model_ai_helpdesk_team,group_helpdesk_user,1,1,1,0
+access_ai_helpdesk_team_manager,ai.helpdesk.team.manager,model_ai_helpdesk_team,group_helpdesk_manager,1,1,1,1
+access_ai_helpdesk_correction_user,ai.helpdesk.correction.user,model_ai_helpdesk_correction,group_helpdesk_user,1,1,1,0
+access_ai_helpdesk_correction_manager,ai.helpdesk.correction.manager,model_ai_helpdesk_correction,group_helpdesk_manager,1,1,1,1

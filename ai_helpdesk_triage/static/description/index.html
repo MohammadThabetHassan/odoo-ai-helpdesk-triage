@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <title>AI Helpdesk Triage Agent</title>
+    <style>
+        body { font-family: Arial, sans-serif; color: #1f2933; line-height: 1.55; margin: 0; padding: 32px; }
+        h1, h2 { color: #111827; }
+        .hero { border-bottom: 1px solid #d9e2ec; margin-bottom: 24px; padding-bottom: 16px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+        .card { border: 1px solid #d9e2ec; border-radius: 8px; padding: 16px; background: #ffffff; }
+        code { background: #f3f4f6; padding: 2px 4px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <section class="hero">
+        <h1>AI Helpdesk Triage Agent</h1>
+        <p>Human-reviewed Anthropic triage for Odoo support tickets. The AI classifies, prioritizes, routes, drafts a reply, explains reasoning, and records confidence and cost telemetry. Humans remain responsible for assignment, progress, resolution, and closure.</p>
+    </section>
+
+    <section class="grid">
+        <div class="card">
+            <h2>Structured AI Output</h2>
+            <p>Uses Anthropic tool-use JSON schema output with validation, corrective retry, and safe fallback when model output is invalid.</p>
+        </div>
+        <div class="card">
+            <h2>Governed Autonomy</h2>
+            <p>Configurable confidence thresholds decide whether to route, recommend review, or keep the ticket New for human triage.</p>
+        </div>
+        <div class="card">
+            <h2>Audit and Cost</h2>
+            <p>Every triage posts a chatter summary and stores input tokens, output tokens, model name, and estimated ticket cost.</p>
+        </div>
+        <div class="card">
+            <h2>Evaluation Ready</h2>
+            <p>Ships with a golden dataset, evaluation script, correction capture model, and dashboard for future dataset improvements.</p>
+        </div>
+    </section>
+
+    <h2>Workflow</h2>
+    <p><code>New</code> to <code>AI Triaged</code> is the only AI-driven transition. Every later transition is a human button click.</p>
+
+    <h2>Privacy</h2>
+    <p>Optional PII redaction masks obvious emails and phone-like values before API calls. The README documents exactly what leaves the server and deployment considerations for UAE PDPL/GDPR-style controls.</p>
+</body>
+</html>

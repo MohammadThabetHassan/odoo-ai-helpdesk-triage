@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="ir_actions_server_bulk_ai_triage" model="ir.actions.server">
+        <field name="name">AI Triage Selected Tickets</field>
+        <field name="model_id" ref="model_ai_helpdesk_ticket"/>
+        <field name="binding_model_id" ref="model_ai_helpdesk_ticket"/>
+        <field name="binding_view_types">list</field>
+        <field name="state">code</field>
+        <field name="code">records.action_ai_triage()</field>
+    </record>
+
+    <record id="ir_cron_auto_triage_new_tickets" model="ir.cron">
+        <field name="name">AI Helpdesk: Auto-triage new tickets</field>
+        <field name="model_id" ref="model_ai_helpdesk_ticket"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_auto_triage_new_tickets()</field>
+        <field name="interval_number">15</field>
+        <field name="interval_type">minutes</field>
+        <field name="active" eval="False"/>
+    </record>
+</odoo>

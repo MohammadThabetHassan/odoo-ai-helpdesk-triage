@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+    <record id="team_technical_support" model="ai.helpdesk.team">
+        <field name="name">Technical Support</field>
+        <field name="description">Application errors, access problems, integrations, and infrastructure-impacting incidents.</field>
+        <field name="member_ids" eval="[Command.link(ref('base.user_admin'))]"/>
+        <field name="color">10</field>
+    </record>
+
+    <record id="team_billing_support" model="ai.helpdesk.team">
+        <field name="name">Billing Support</field>
+        <field name="description">Invoices, subscription changes, refunds, and payment failures.</field>
+        <field name="member_ids" eval="[Command.link(ref('base.user_admin'))]"/>
+        <field name="color">3</field>
+    </record>
+
+    <record id="team_customer_success" model="ai.helpdesk.team">
+        <field name="name">Customer Success</field>
+        <field name="description">General product questions, onboarding, and feature-request intake.</field>
+        <field name="member_ids" eval="[Command.link(ref('base.user_admin'))]"/>
+        <field name="color">5</field>
+    </record>
+
+    <record id="ticket_demo_login_failure" model="ai.helpdesk.ticket">
+        <field name="name">Cannot log in after password reset</field>
+        <field name="description">The customer reset their password but receives an invalid token error when signing in.</field>
+        <field name="priority">2</field>
+    </record>
+
+    <record id="ticket_demo_invoice_question" model="ai.helpdesk.ticket">
+        <field name="name">Invoice total does not match subscription</field>
+        <field name="description">The customer believes the last invoice includes an extra seat that was removed last week.</field>
+        <field name="priority">1</field>
+    </record>
+
+    <record id="ticket_demo_feature_request" model="ai.helpdesk.ticket">
+        <field name="name">Request for Slack notification controls</field>
+        <field name="description">The customer wants per-project notification rules for Slack alerts.</field>
+        <field name="priority">0</field>
+    </record>
+</odoo>
