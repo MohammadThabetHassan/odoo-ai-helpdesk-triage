@@ -1,0 +1,72 @@
+name: AI Helpdesk Triage CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: odoo
+          POSTGRES_PASSWORD: odoo
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: addon
+
+      - uses: actions/checkout@v4
+        with:
+          repository: odoo/odoo
+          ref: '19.0'
+          path: odoo-src
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip wheel
+          pip install -r odoo-src/requirements.txt
+          pip install requests ruff black matplotlib
+
+      - name: Lint
+        run: |
+          ruff check addon/ai_helpdesk_triage
+          black --check addon/ai_helpdesk_triage
+
+      - name: Evaluate golden set
+        run: python addon/ai_helpdesk_triage/scripts/evaluate.py
+
+      - name: Run Odoo module tests
+        env:
+          PGHOST: localhost
+          PGUSER: odoo
+          PGPASSWORD: odoo
+        run: |
+          python odoo-src/odoo-bin \
+            -d ai_helpdesk_test \
+            --db_host=localhost \
+            --db_user=odoo \
+            --db_password=odoo \
+            --stop-after-init \
+            -i ai_helpdesk_triage \
+            --test-enable \
+            --test-tags /ai_helpdesk_triage \
+            --addons-path=odoo-src/addons,addon

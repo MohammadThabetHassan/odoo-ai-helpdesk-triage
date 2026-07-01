@@ -1,0 +1,16 @@
+*.env
+.env
+__pycache__/
+*.pyc
+.venv/
+.idea/
+.vscode/
+*.log
+.codex/
+.agents/
+.aider*
+.cursor/
+.claude/
+.odoo-data/
+pgdata/
+.ruff_cache/
