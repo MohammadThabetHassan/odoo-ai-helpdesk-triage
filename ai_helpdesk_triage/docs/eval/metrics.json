@@ -1,0 +1,42 @@
+{
+  "total": 60,
+  "classification_accuracy": 0.9,
+  "routing_accuracy": 0.9,
+  "priority_accuracy": 0.6,
+  "per_category": {
+    "technical": {
+      "precision": 0.9230769230769231,
+      "recall": 0.8,
+      "support": 15
+    },
+    "billing": {
+      "precision": 0.75,
+      "recall": 1.0,
+      "support": 15
+    },
+    "general": {
+      "precision": 1.0,
+      "recall": 0.8666666666666667,
+      "support": 15
+    },
+    "feature_request": {
+      "precision": 1.0,
+      "recall": 0.9333333333333333,
+      "support": 15
+    }
+  },
+  "calibration": [
+    {
+      "bucket": "0.7-0.8",
+      "count": 27,
+      "avg_confidence": 0.7511111111111112,
+      "accuracy": 1.0
+    },
+    {
+      "bucket": "0.8-0.9",
+      "count": 33,
+      "avg_confidence": 0.8642424242424241,
+      "accuracy": 0.8181818181818182
+    }
+  ]
+}
