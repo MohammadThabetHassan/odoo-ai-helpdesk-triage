@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_ai_helpdesk_ticket_form" model="ir.ui.view">
+        <field name="name">ai.helpdesk.ticket.form</field>
+        <field name="model">ai.helpdesk.ticket</field>
+        <field name="arch" type="xml">
+            <form string="Support Ticket">
+                <header>
+                    <button name="action_ai_triage" type="object" string="AI Triage" class="btn-primary" invisible="state != 'new' or ai_triage_attempted" confirm="Let the AI agent analyze this ticket and suggest classification, team, and reply?"/>
+                    <button name="action_assign" type="object" string="Assign" class="btn-primary" invisible="state != 'ai_triaged'"/>
+                    <button name="action_start_progress" type="object" string="Start Progress" class="btn-primary" invisible="state != 'assigned'"/>
+                    <button name="action_resolve" type="object" string="Resolve" class="btn-primary" invisible="state != 'in_progress'"/>
+                    <button name="action_close" type="object" string="Close" invisible="state != 'resolved'"/>
+                    <button name="action_reset_new" type="object" string="Reset to New" invisible="state == 'new' and not ai_triage_attempted and not ai_error"/>
+                    <field name="state" widget="statusbar" statusbar_visible="new,ai_triaged,assigned,in_progress,resolved,closed"/>
+                </header>
+                <sheet>
+                    <field name="ai_triaged" invisible="1"/>
+                    <field name="ai_triage_attempted" invisible="1"/>
+                    <field name="ai_error" invisible="1"/>
+                    <field name="ai_review_status" invisible="1"/>
+                    <div class="alert alert-warning" role="alert" invisible="ai_review_status != 'review_recommended'">
+                        <strong>Review recommended.</strong> The AI routed this ticket but confidence is below the auto-route threshold.
+                    </div>
+                    <div class="alert alert-danger" role="alert" invisible="ai_review_status != 'needs_human'">
+                        <strong>Needs human triage.</strong> AI confidence is below the review threshold, so the ticket remains New.
+                    </div>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1><field name="name" placeholder="e.g. Cannot log in to my account"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="partner_id"/>
+                            <field name="partner_email" readonly="1"/>
+                            <field name="category"/>
+                            <field name="priority" widget="priority"/>
+                        </group>
+                        <group>
+                            <field name="team_id"/>
+                            <field name="user_id"/>
+                            <field name="ai_model" readonly="1" invisible="not ai_model"/>
+                            <field name="ai_total_cost" readonly="1" invisible="not ai_total_cost"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Description">
+                            <field name="description" placeholder="Describe the customer's issue in detail."/>
+                        </page>
+                        <page string="AI Analysis" invisible="not ai_triaged">
+                            <group>
+                                <group>
+                                    <field name="ai_confidence_percent" widget="progressbar" readonly="1" title="Confidence"/>
+                                    <field name="ai_review_status" widget="badge" readonly="1"/>
+                                </group>
+                                <group>
+                                    <field name="ai_input_tokens" readonly="1"/>
+                                    <field name="ai_output_tokens" readonly="1"/>
+                                    <field name="ai_triaged_date" readonly="1"/>
+                                </group>
+                            </group>
+                            <group string="Reasoning">
+                                <field name="ai_reasoning" nolabel="1" readonly="1"/>
+                            </group>
+                            <group string="Suggested Reply">
+                                <field name="ai_suggested_reply" nolabel="1" placeholder="Human-editable draft reply."/>
+                            </group>
+                        </page>
+                        <page string="AI Error" invisible="not ai_error">
+                            <field name="ai_error" readonly="1" nolabel="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <div class="oe_chatter">
+                    <field name="message_follower_ids"/>
+                    <field name="activity_ids"/>
+                    <field name="message_ids"/>
+                </div>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_ai_helpdesk_ticket_list" model="ir.ui.view">
+        <field name="name">ai.helpdesk.ticket.list</field>
+        <field name="model">ai.helpdesk.ticket</field>
+        <field name="arch" type="xml">
+            <list string="Support Tickets" decoration-danger="priority == '3'" decoration-warning="priority == '2'" decoration-muted="state == 'closed'">
+                <field name="name"/>
+                <field name="partner_id"/>
+                <field name="category"/>
+                <field name="priority" widget="priority"/>
+                <field name="team_id"/>
+                <field name="user_id"/>
+                <field name="ai_confidence_percent" optional="hide"/>
+                <field name="state" widget="badge" decoration-info="state == 'new'" decoration-primary="state == 'ai_triaged'" decoration-warning="state in ('assigned','in_progress')" decoration-success="state in ('resolved','closed')"/>
+                <field name="ai_triaged" widget="boolean_toggle"/>
+                <field name="create_date"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ai_helpdesk_ticket_kanban" model="ir.ui.view">
+        <field name="name">ai.helpdesk.ticket.kanban</field>
+        <field name="model">ai.helpdesk.ticket</field>
+        <field name="arch" type="xml">
+            <kanban default_group_by="state" class="o_kanban_small_column">
+                <field name="name"/>
+                <field name="priority"/>
+                <field name="state"/>
+                <field name="ai_triaged"/>
+                <field name="ai_review_status"/>
+                <field name="partner_id"/>
+                <field name="team_id"/>
+                <field name="user_id"/>
+                <templates>
+                    <t t-name="card">
+                        <div class="oe_kanban_global_click o_kanban_card p-2">
+                            <div class="d-flex justify-content-between gap-2">
+                                <strong class="text-truncate"><field name="name"/></strong>
+                                <field name="priority" widget="priority"/>
+                            </div>
+                            <div t-if="record.partner_id.raw_value" class="mt-1 text-muted">
+                                <i class="fa fa-user" title="Customer"/> <field name="partner_id"/>
+                            </div>
+                            <div t-if="record.team_id.raw_value" class="mt-1">
+                                <i class="fa fa-users" title="Team"/> <field name="team_id"/>
+                            </div>
+                            <div t-if="record.user_id.raw_value" class="mt-1">
+                                <i class="fa fa-user-circle" title="Assignee"/> <field name="user_id"/>
+                            </div>
+                            <div class="mt-2 d-flex gap-1 flex-wrap">
+                                <span t-if="record.ai_triaged.raw_value" class="badge text-bg-info">&#10024; AI Triaged</span>
+                                <span t-if="record.ai_review_status.raw_value == 'review_recommended'" class="badge text-bg-warning">Review</span>
+                                <span t-if="record.ai_review_status.raw_value == 'needs_human'" class="badge text-bg-danger">Needs Human</span>
+                            </div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <record id="view_ai_helpdesk_ticket_search" model="ir.ui.view">
+        <field name="name">ai.helpdesk.ticket.search</field>
+        <field name="model">ai.helpdesk.ticket</field>
+        <field name="arch" type="xml">
+            <search string="Search Tickets">
+                <field name="name"/>
+                <field name="partner_id"/>
+                <field name="team_id"/>
+                <field name="user_id"/>
+                <filter string="Not Yet Triaged" name="not_triaged" domain="[('ai_triaged','=',False)]"/>
+                <filter string="AI Triaged" name="triaged" domain="[('ai_triaged','=',True)]"/>
+                <filter string="Needs Human" name="needs_human" domain="[('ai_review_status','=','needs_human')]"/>
+                <filter string="Urgent" name="urgent" domain="[('priority','=','3')]"/>
+                <filter string="My Tickets" name="my_tickets" domain="[('user_id','=',uid)]"/>
+                <separator/>
+                <filter string="Open" name="open" domain="[('state','not in',('resolved','closed'))]"/>
+                <group>
+                    <filter string="Status" name="group_state" context="{'group_by': 'state'}"/>
+                    <filter string="Category" name="group_category" context="{'group_by': 'category'}"/>
+                    <filter string="Team" name="group_team" context="{'group_by': 'team_id'}"/>
+                    <filter string="Assignee" name="group_user" context="{'group_by': 'user_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_ai_helpdesk_ticket" model="ir.actions.act_window">
+        <field name="name">Tickets</field>
+        <field name="res_model">ai.helpdesk.ticket</field>
+        <field name="view_mode">kanban,list,form</field>
+        <field name="context">{'search_default_open': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Create your first support ticket</p>
+            <p>Let the AI Triage Agent classify, prioritize, route, and draft a reply for human review.</p>
+        </field>
+    </record>
+</odoo>

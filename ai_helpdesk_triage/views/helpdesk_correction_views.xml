@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_ai_helpdesk_correction_list" model="ir.ui.view">
+        <field name="name">ai.helpdesk.correction.list</field>
+        <field name="model">ai.helpdesk.correction</field>
+        <field name="arch" type="xml">
+            <list string="AI Corrections" create="0" edit="0">
+                <field name="corrected_at"/>
+                <field name="ticket_id"/>
+                <field name="field_name"/>
+                <field name="ai_value"/>
+                <field name="human_value"/>
+                <field name="ai_confidence"/>
+                <field name="user_id"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ai_helpdesk_correction_form" model="ir.ui.view">
+        <field name="name">ai.helpdesk.correction.form</field>
+        <field name="model">ai.helpdesk.correction</field>
+        <field name="arch" type="xml">
+            <form string="AI Correction" create="0" edit="0">
+                <header>
+                    <button name="action_open_ticket" type="object" string="Open Ticket" class="btn-primary"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="ticket_id"/>
+                            <field name="corrected_at"/>
+                            <field name="user_id"/>
+                            <field name="field_name"/>
+                        </group>
+                        <group>
+                            <field name="ai_value"/>
+                            <field name="human_value"/>
+                            <field name="ai_confidence" widget="percentage"/>
+                        </group>
+                    </group>
+                    <group string="Ticket Snapshot">
+                        <field name="ticket_name"/>
+                        <field name="ticket_description"/>
+                        <field name="ai_reasoning"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_ai_helpdesk_correction_pivot" model="ir.ui.view">
+        <field name="name">ai.helpdesk.correction.pivot</field>
+        <field name="model">ai.helpdesk.correction</field>
+        <field name="arch" type="xml">
+            <pivot string="AI Correction Dashboard">
+                <field name="field_name" type="row"/>
+                <field name="user_id" type="col"/>
+                <field name="id" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="view_ai_helpdesk_correction_graph" model="ir.ui.view">
+        <field name="name">ai.helpdesk.correction.graph</field>
+        <field name="model">ai.helpdesk.correction</field>
+        <field name="arch" type="xml">
+            <graph string="AI Corrections" type="bar">
+                <field name="field_name"/>
+                <field name="id" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="action_ai_helpdesk_correction" model="ir.actions.act_window">
+        <field name="name">AI Corrections</field>
+        <field name="res_model">ai.helpdesk.correction</field>
+        <field name="view_mode">graph,pivot,list,form</field>
+    </record>
+</odoo>

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="res_config_settings_view_form" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.ai.helpdesk</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="AI Helpdesk Triage" string="AI Helpdesk Triage" name="ai_helpdesk_triage" groups="ai_helpdesk_triage.group_helpdesk_manager">
+                    <block title="Anthropic Agent" name="ai_helpdesk_triage_agent_settings">
+                        <setting id="ai_helpdesk_anthropic_api_key" string="Anthropic API Key" help="Used by the AI agent to classify, prioritize, route, and draft ticket replies.">
+                            <field name="anthropic_api_key" password="True"/>
+                        </setting>
+                        <setting id="ai_helpdesk_redact_pii" string="PII redaction" help="Redacts obvious emails and phone-like values from ticket text before API calls.">
+                            <field name="ai_redact_pii"/>
+                        </setting>
+                    </block>
+                    <block title="Autonomy Guardrails" name="ai_helpdesk_triage_threshold_settings">
+                        <setting id="ai_helpdesk_auto_route_threshold" string="Auto-route threshold" help="At or above this 0-1 confidence value, the AI routes the ticket and moves it to AI Triaged.">
+                            <field name="ai_auto_route_confidence_threshold"/>
+                        </setting>
+                        <setting id="ai_helpdesk_review_threshold" string="Review threshold" help="Below this 0-1 confidence value, the ticket remains New and is flagged as needs human triage.">
+                            <field name="ai_review_confidence_threshold"/>
+                        </setting>
+                        <setting id="ai_helpdesk_daily_budget" string="Daily budget" help="Optional daily spend cap in USD. Use zero to disable the guardrail.">
+                            <field name="ai_daily_budget_usd"/>
+                        </setting>
+                    </block>
+                    <block title="Spend Visibility" name="ai_helpdesk_triage_spend_settings">
+                        <setting id="ai_helpdesk_today_spend" string="Estimated spend today">
+                            <field name="ai_today_spend_usd" readonly="1"/>
+                        </setting>
+                        <setting id="ai_helpdesk_monthly_spend" string="Estimated spend this month">
+                            <field name="ai_monthly_spend_usd" readonly="1"/>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="action_ai_helpdesk_config_settings" model="ir.actions.act_window">
+        <field name="name">Settings</field>
+        <field name="res_model">res.config.settings</field>
+        <field name="view_mode">form</field>
+        <field name="target">current</field>
+        <field name="context">{'module': 'ai_helpdesk_triage'}</field>
+    </record>
+</odoo>

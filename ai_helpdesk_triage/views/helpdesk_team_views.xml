@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_ai_helpdesk_team_form" model="ir.ui.view">
+        <field name="name">ai.helpdesk.team.form</field>
+        <field name="model">ai.helpdesk.team</field>
+        <field name="arch" type="xml">
+            <form string="Helpdesk Team">
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_view_tickets" type="object" class="oe_stat_button" icon="fa-ticket">
+                            <field name="ticket_count" widget="statinfo" string="Tickets"/>
+                        </button>
+                    </div>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1><field name="name" placeholder="e.g. Technical Support"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="member_ids" widget="many2many_tags"/>
+                            <field name="color" widget="color_picker"/>
+                            <field name="active"/>
+                        </group>
+                        <group>
+                            <field name="description"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_ai_helpdesk_team_list" model="ir.ui.view">
+        <field name="name">ai.helpdesk.team.list</field>
+        <field name="model">ai.helpdesk.team</field>
+        <field name="arch" type="xml">
+            <list string="Helpdesk Teams">
+                <field name="name"/>
+                <field name="member_ids" widget="many2many_tags"/>
+                <field name="ticket_count"/>
+                <field name="active"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_ai_helpdesk_team" model="ir.actions.act_window">
+        <field name="name">Teams</field>
+        <field name="res_model">ai.helpdesk.team</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Create a helpdesk team</p>
+            <p>The AI agent can only route tickets to active teams defined here.</p>
+        </field>
+    </record>
+</odoo>
