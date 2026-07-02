@@ -27,6 +27,7 @@ human action.
         "views/helpdesk_action_views.xml",
         "views/res_config_settings_views.xml",
         "views/menu_views.xml",
+        "views/helpdesk_ticket_report_views.xml",
     ],
     "demo": [
         "data/demo_teams.xml",
