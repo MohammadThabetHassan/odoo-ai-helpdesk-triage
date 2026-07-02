@@ -188,16 +188,44 @@ def post_customer_reply(env, ticket, body):
     return {"ok": True, "data": {"posted": True, "recipients": len(partner_ids)}}
 
 
+def _is_denylisted_email(email):
+    """Return True if the email's host or any parent domain is on the denylist.
+
+    Matches suffixes so `foo@public.mailinator.com` is caught by the
+    `mailinator.com` entry. Mailinator, Guerrillamail, and Yopmail all
+    publish subdomain-based public inboxes as a documented feature, and a
+    strict equality check would let those through.
+    """
+    if "@" not in (email or ""):
+        return False
+    host = email.rsplit("@", 1)[-1].casefold()
+    return any(host == d or host.endswith("." + d) for d in DENYLISTED_DOMAINS)
+
+
 def update_customer_contact(env, ticket, email=None, phone=None):
     """Change the partner's stored email or phone with an audit trail.
 
-    Guards against a prompt-injection account-takeover chain: a malicious
-    ticket body could tell the model to rewrite the customer's email and
-    then request a password reset — the reset link would land in the
-    attacker's inbox. To make that path fail-closed, every new value must
-    appear verbatim (case-insensitive) inside ticket.name or
-    ticket.description, and email destinations on the reputation
-    denylist are refused outright.
+    Layered guards against value drift and cross-tenant contamination:
+
+    - The new value must appear verbatim (case-insensitive) in
+      ticket.name or ticket.description. This blocks model hallucination
+      (a value that never appeared in the ticket at all) and cross-tenant
+      contamination via find_similar_tickets (a value pulled from
+      another customer's history). It does NOT block a prompt-injection
+      payload that places the attacker's own value directly in the
+      ticket body — the ticket body is exactly the surface an attacker
+      controls. Higher-layer defenses (out-of-band confirmation,
+      manager approval, email-spoofing rejection on the mail gateway)
+      are the proper answer for the injection case; this tool only
+      closes the hallucination/contamination edges.
+    - Email destinations on the reputation denylist are refused, with
+      subdomain-suffix matching so throwaway-mail subdomains cannot
+      slip through the check.
+    - Tool registration carries requires_raw_pii=True so
+      get_available_tools hides it entirely when the operator has
+      redact_pii enabled — otherwise the model only sees
+      [REDACTED_EMAIL]/[REDACTED_PHONE] placeholders and cannot pass
+      a real new value at all.
     """
     if not ticket.partner_id:
         return {"ok": False, "error": "no_partner"}
@@ -207,13 +235,22 @@ def update_customer_contact(env, ticket, email=None, phone=None):
         email = email.strip()
         if not email:
             pass
+        elif email.startswith("[REDACTED"):
+            # Defense in depth: even if the tool was somehow reached with
+            # redact_pii on, refuse to write a redacted-token placeholder
+            # as a real email address.
+            return {
+                "ok": False,
+                "error": "redacted_placeholder_rejected",
+                "detail": email,
+            }
         elif email.casefold() not in ticket_text:
             return {
                 "ok": False,
                 "error": "value_not_in_ticket_text",
                 "detail": "email must appear verbatim in the ticket subject or description",
             }
-        elif "@" in email and email.rsplit("@", 1)[-1].casefold() in DENYLISTED_DOMAINS:
+        elif _is_denylisted_email(email):
             return {
                 "ok": False,
                 "error": "denylisted_email_domain",
@@ -225,6 +262,12 @@ def update_customer_contact(env, ticket, email=None, phone=None):
         phone = phone.strip()
         if not phone:
             pass
+        elif phone.startswith("[REDACTED"):
+            return {
+                "ok": False,
+                "error": "redacted_placeholder_rejected",
+                "detail": phone,
+            }
         elif phone.casefold() not in ticket_text:
             return {
                 "ok": False,
@@ -283,5 +326,9 @@ WRITE_TOOLS = {
         "schema": UPDATE_CUSTOMER_CONTACT_SCHEMA,
         "callable": update_customer_contact,
         "class": "write",
+        # The model must be able to see the customer-supplied new value.
+        # When redact_pii is on the description shows [REDACTED_EMAIL]
+        # instead, so the tool cannot function — tool_registry hides it.
+        "requires_raw_pii": True,
     },
 }

@@ -74,11 +74,22 @@ CORRECTION_FIELDS = {"category", "priority", "team_id"}
 # exclude these so a noisy customer's throttled rows do not misdirect
 # guardrails at every other customer in the same category.
 PRE_EXECUTION_REFUSAL_ERRORS = (
+    # Loop-level: refused before any tool callable ran.
     "rate_limited",
     "duplicate_call_blocked",
     "tool_not_in_iteration_schema",
     "tool_not_available",
     "bad_arguments",
+    # Tool-level policy/env guards: exited before touching a downstream
+    # system. Same intent — a data-quality or environment refusal is not
+    # a downstream failure signal.
+    "no_partner",
+    "value_not_in_ticket_text",
+    "denylisted_email_domain",
+    "redacted_placeholder_rejected",
+    "no_recipient",
+    "module_not_installed",
+    "invoice_template_missing",
 )
 EMAIL_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
 PHONE_RE = re.compile(r"(?<!\w)(?:\+?\d[\d\s().-]{7,}\d)(?!\w)")
@@ -211,6 +222,7 @@ class HelpdeskTicket(models.Model):
     ai_resolution_duration_minutes = fields.Float(
         compute="_compute_resolution_duration",
         store=True,
+        aggregator="avg",
         string="Resolution Duration (min)",
     )
     ai_resolution_in_progress = fields.Boolean(default=False, readonly=True)
@@ -231,13 +243,19 @@ class HelpdeskTicket(models.Model):
 
     @api.depends("ai_resolution_start_at", "ai_resolution_end_at")
     def _compute_resolution_duration(self):
-        """Derive resolution latency in minutes from start/end timestamps."""
+        """Derive resolution latency in minutes from start/end timestamps.
+
+        Store False (not 0.0) when either timestamp is missing so the
+        avg aggregator on this field ignores unresolved tickets — otherwise
+        every New / AI Triaged / not_attempted row would count as a
+        zero-minute resolution and drag the report average toward zero.
+        """
         for ticket in self:
             if ticket.ai_resolution_start_at and ticket.ai_resolution_end_at:
                 delta = ticket.ai_resolution_end_at - ticket.ai_resolution_start_at
                 ticket.ai_resolution_duration_minutes = delta.total_seconds() / 60.0
             else:
-                ticket.ai_resolution_duration_minutes = 0.0
+                ticket.ai_resolution_duration_minutes = False
 
     @api.model
     def _expand_states(self, states, domain):

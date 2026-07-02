@@ -8,7 +8,7 @@
                 <field name="category" type="row"/>
                 <field name="ai_resolution_status" type="col"/>
                 <field name="id" type="measure" string="Ticket Count"/>
-                <field name="ai_resolution_duration_minutes" type="measure" string="Avg Duration (min)" avg="1"/>
+                <field name="ai_resolution_duration_minutes" type="measure" string="Avg Duration (min)"/>
             </pivot>
         </field>
     </record>
@@ -19,7 +19,7 @@
         <field name="arch" type="xml">
             <graph string="AI Resolution Report" type="bar">
                 <field name="category" type="row"/>
-                <field name="ai_resolution_duration_minutes" type="measure" string="Avg Duration (min)" avg="1"/>
+                <field name="ai_resolution_duration_minutes" type="measure" string="Avg Duration (min)"/>
             </graph>
         </field>
     </record>
@@ -30,5 +30,5 @@
         <field name="view_mode">pivot,graph</field>
     </record>
 
-    <menuitem id="menu_ai_helpdesk_resolution_report" name="Reports" parent="menu_ai_helpdesk_config" action="action_ai_helpdesk_resolution_report" sequence="40"/>
+    <menuitem id="menu_ai_helpdesk_resolution_report" name="Reports" parent="menu_ai_helpdesk_root" action="action_ai_helpdesk_resolution_report" sequence="30"/>
 </odoo>

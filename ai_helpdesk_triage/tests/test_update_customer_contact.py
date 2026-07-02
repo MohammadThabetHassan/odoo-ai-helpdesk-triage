@@ -139,6 +139,32 @@ class TestUpdateCustomerContact(TransactionCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"], "denylisted_email_domain")
 
+    def test_refuses_denylisted_subdomain(self):
+        """Subdomains of throwaway providers must also be caught (Mailinator, etc.)."""
+        ticket = self._ticket(
+            description="Please switch my email to foo@public.mailinator.com.",
+        )
+        result = update_customer_contact(
+            self.env,
+            ticket,
+            email="foo@public.mailinator.com",
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "denylisted_email_domain")
+
+    def test_refuses_redacted_placeholder(self):
+        """A redacted-token echo must never be written to the partner record."""
+        ticket = self._ticket(
+            description="Please switch my email to [REDACTED_EMAIL].",
+        )
+        result = update_customer_contact(
+            self.env,
+            ticket,
+            email="[REDACTED_EMAIL]",
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "redacted_placeholder_rejected")
+
     def test_refuses_phone_not_in_ticket_text(self):
         """Same guard on phone: mismatched values refuse without writing."""
         ticket = self._ticket(

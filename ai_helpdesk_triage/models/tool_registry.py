@@ -30,6 +30,7 @@ def get_available_tools(env, autonomy_level):
     if not allowed_classes:
         return {}
     disabled = _get_disabled_tools(env)
+    redact_pii = _get_redact_pii(env)
     result = {}
     for name, tool in TOOL_REGISTRY.items():
         if name in disabled:
@@ -38,6 +39,15 @@ def get_available_tools(env, autonomy_level):
             continue
         required_module = tool.get("requires_module")
         if required_module and not _module_installed(env, required_module):
+            continue
+        # PII-dependent tools need the raw ticket text to be visible to the
+        # model. When redact_pii is on, the model only sees [REDACTED_EMAIL]
+        # / [REDACTED_PHONE] placeholders, so it cannot pass a real new
+        # value — the tool becomes structurally unusable. Hide it from the
+        # schema entirely instead of letting the model waste iterations
+        # trying to call it. Operators who want the tool must turn off
+        # redact_pii deliberately.
+        if redact_pii and tool.get("requires_raw_pii"):
             continue
         result[name] = tool
     return result
@@ -52,6 +62,14 @@ def _get_disabled_tools(env):
     """Read the operator-managed kill-switch list of tool names."""
     raw = env["ir.config_parameter"].sudo().get_param("ai_helpdesk_triage.disabled_tools", "") or ""
     return {name.strip() for name in raw.split(",") if name.strip()}
+
+
+def _get_redact_pii(env):
+    """Read the operator's PII redaction toggle."""
+    raw = env["ir.config_parameter"].sudo().get_param("ai_helpdesk_triage.redact_pii", "True")
+    if isinstance(raw, bool):
+        return raw
+    return str(raw).lower() in {"1", "true", "yes", "on"}
 
 
 def _module_installed(env, name):
