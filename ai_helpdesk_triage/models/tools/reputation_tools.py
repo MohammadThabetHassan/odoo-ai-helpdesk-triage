@@ -73,19 +73,30 @@ def check_domain_reputation(env, ticket, domain):
 
 
 def _get_trusted_domains(env):
-    """Return the static allowlist plus domains found on partner emails/websites."""
-    domains = set(TRUSTED_DOMAINS)
+    """Return the static allowlist plus domains found on partner emails/websites.
 
-    partners = env["res.partner"].sudo().search([])
-    for partner in partners:
-        email_domain = _extract_domain(partner.email)
+    Uses a filtered search_read so we only materialize the small subset of
+    partners that actually have an email or website — critical for
+    multi-tenant installs with 50k+ partner rows where an unfiltered scan
+    would rewrite this tool from an O(1) verdict into an O(N) sweep every
+    call.
+    """
+    domains = set(TRUSTED_DOMAINS)
+    partner_rows = (
+        env["res.partner"]
+        .sudo()
+        .search_read(
+            ["|", ("email", "!=", False), ("website", "!=", False)],
+            ["email", "website"],
+        )
+    )
+    for row in partner_rows:
+        email_domain = _extract_domain(row.get("email"))
         if email_domain:
             domains.add(email_domain)
-
-        website_domain = _extract_website_domain(partner.website)
+        website_domain = _extract_website_domain(row.get("website"))
         if website_domain:
             domains.add(website_domain)
-
     return domains
 
 
