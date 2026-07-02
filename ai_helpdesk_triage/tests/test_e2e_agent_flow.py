@@ -531,6 +531,77 @@ class TestAgentEndToEnd(TransactionCase):
         self.assertEqual(rate_row.error_message, "rate_limited")
 
     # ------------------------------------------------------------------
+    # 4d. Circuit breaker ignores pre-execution refusal rows.
+    # ------------------------------------------------------------------
+    def test_4d_circuit_breaker_ignores_rate_limited_rows(self):
+        """Rate-limited (and other policy-refusal) rows must not trip the breaker."""
+        Icp = self.env["ir.config_parameter"].sudo()
+        Icp.set_param("ai_helpdesk_triage.circuit_breaker_window_seconds", "3600")
+        Icp.set_param("ai_helpdesk_triage.circuit_breaker_failure_threshold", "0.5")
+        Icp.set_param("ai_helpdesk_triage.circuit_breaker_min_actions", "3")
+
+        ticket = self._new_ticket()
+        with patch(
+            "odoo.addons.ai_helpdesk_triage.models.helpdesk_ticket.requests.post",
+            return_value=self._triage_response(),
+        ):
+            ticket.action_ai_triage()
+
+        # Seed 6 rows: 3 rate_limited (policy refusals) + 3 real success rows.
+        # If pre-execution refusals were still counted, ratio = 3/6 = 0.5 and
+        # the breaker would trip. With the filter, only the 3 successes are
+        # counted → total < min_actions → breaker stays closed.
+        sibling = self._new_ticket()
+        sibling.category = "billing"
+        Action = self.env["ai.helpdesk.action"].sudo()
+        for i in range(3):
+            Action.create(
+                {
+                    "ticket_id": sibling.id,
+                    "sequence": i + 1,
+                    "tool_name": "send_password_reset",
+                    "tool_input": "{}",
+                    "tool_result": '{"ok": false, "error": "rate_limited"}',
+                    "succeeded": False,
+                    "error_message": "rate_limited",
+                },
+            )
+        for i in range(3):
+            Action.create(
+                {
+                    "ticket_id": sibling.id,
+                    "sequence": 10 + i,
+                    "tool_name": "lookup_customer",
+                    "tool_input": "{}",
+                    "tool_result": '{"ok": true}',
+                    "succeeded": True,
+                },
+            )
+
+        # Should NOT raise — rate-limited rows are policy refusals, not
+        # downstream failures, so the breaker's health signal ignores them.
+        loop_responses = [
+            self._loop_response(
+                [
+                    self._tool_use(
+                        "escalate_to_human",
+                        {"reason": "done"},
+                        "u1",
+                    ),
+                ],
+                assistant_text="escalating",
+            ),
+        ]
+        with patch(
+            "odoo.addons.ai_helpdesk_triage.models.anthropic_client.requests.post",
+            side_effect=loop_responses,
+        ):
+            ticket.action_ai_resolve()
+        # If the breaker had tripped, action_ai_resolve would have raised
+        # a UserError. Reaching here proves it stayed closed.
+        self.assertEqual(ticket.ai_resolution_status, "escalated")
+
+    # ------------------------------------------------------------------
     # 5. Read-only autonomy hides write tools from the schema.
     # ------------------------------------------------------------------
     def test_5_read_only_autonomy_filters_write_tools(self):

@@ -445,8 +445,17 @@ def _run_reflection(env, ticket, messages):
             ),
         },
     ]
+    # Bedrock bakes the model id into the URL and drops payload["model"],
+    # so a "Haiku" reflection would silently run on the configured Bedrock
+    # Sonnet while being billed at Haiku rates. Pin Sonnet on Bedrock so
+    # cost accounting matches what AWS is actually charging.
+    reflection_model = (
+        anthropic_client.DEFAULT_MODEL
+        if anthropic_client.get_provider(env) == "bedrock"
+        else anthropic_client.FAST_MODEL
+    )
     payload = {
-        "model": anthropic_client.FAST_MODEL,
+        "model": reflection_model,
         "max_tokens": 400,
         "system": REFLECT_SYSTEM_PROMPT,
         "tools": [REFLECT_TOOL_SCHEMA],
@@ -468,7 +477,7 @@ def _run_reflection(env, ticket, messages):
     cost = anthropic_client.estimate_cost(
         input_tokens,
         output_tokens,
-        model_id=anthropic_client.FAST_MODEL,
+        model_id=reflection_model,
         cache_creation_tokens=cache_write,
         cache_read_tokens=cache_read,
     )
@@ -569,15 +578,21 @@ def _build_payload(model_id, schemas, messages, extended_thinking=False):
             **tools_out[-1],
             "cache_control": {"type": "ephemeral"},
         }
+    # Anthropic counts thinking tokens against max_tokens, and the API
+    # requires budget_tokens < max_tokens. Raise the ceiling by the
+    # thinking budget so the completion still has DEFAULT_MAX_TOKENS of
+    # room for its own output.
+    thinking_budget = 4000
+    max_tokens = anthropic_client.DEFAULT_MAX_TOKENS + (thinking_budget if extended_thinking else 0)
     payload = {
         "model": model_id,
-        "max_tokens": anthropic_client.DEFAULT_MAX_TOKENS,
+        "max_tokens": max_tokens,
         "system": system_blocks,
         "tools": tools_out,
         "messages": messages,
     }
     if extended_thinking:
-        payload["thinking"] = {"type": "enabled", "budget_tokens": 4000}
+        payload["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
     return payload
 
 

@@ -67,6 +67,19 @@ URGENCY_SELECTION = [
     ("vip", "VIP"),
 ]
 CORRECTION_FIELDS = {"category", "priority", "team_id"}
+# ai.helpdesk.action rows carrying one of these error_message values were
+# never executed against a downstream system — they represent policy
+# refusals inside the agent loop. Any consumer that reads action rows as
+# a downstream-health signal (circuit breaker, anomaly cron, etc.) must
+# exclude these so a noisy customer's throttled rows do not misdirect
+# guardrails at every other customer in the same category.
+PRE_EXECUTION_REFUSAL_ERRORS = (
+    "rate_limited",
+    "duplicate_call_blocked",
+    "tool_not_in_iteration_schema",
+    "tool_not_available",
+    "bad_arguments",
+)
 EMAIL_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
 PHONE_RE = re.compile(r"(?<!\w)(?:\+?\d[\d\s().-]{7,}\d)(?!\w)")
 
@@ -828,6 +841,11 @@ Confidence must be a number from 0.0 to 1.0.
         cutoff = fields.Datetime.to_string(
             fields.Datetime.now() - timedelta(seconds=window_seconds),
         )
+        # The breaker is meant to catch downstream system failures, not
+        # policy refusals. Rows created by the rate limiter, duplicate
+        # guard, kill-switch, or JSON validation never touched an external
+        # system — including them here inverts the breaker's promise, so
+        # one throttled customer can trip it for the whole category.
         recent = (
             self.env["ai.helpdesk.action"]
             .sudo()
@@ -835,6 +853,11 @@ Confidence must be a number from 0.0 to 1.0.
                 [
                     ("create_date", ">=", cutoff),
                     ("ticket_id.category", "=", self.category),
+                    (
+                        "error_message",
+                        "not in",
+                        list(PRE_EXECUTION_REFUSAL_ERRORS),
+                    ),
                 ],
             )
         )

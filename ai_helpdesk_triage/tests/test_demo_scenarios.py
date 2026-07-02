@@ -479,6 +479,12 @@ class TestDemoScenarios(TransactionCase):
         self.assertTrue(captured_payloads, "expected at least one captured payload")
         self.assertIn("thinking", captured_payloads[0])
         self.assertEqual(captured_payloads[0]["thinking"]["type"], "enabled")
+        # Anthropic requires budget_tokens < max_tokens. Without the fix,
+        # budget_tokens=4000 > max_tokens=1500 and the API rejects with 400.
+        self.assertGreater(
+            captured_payloads[0]["max_tokens"],
+            captured_payloads[0]["thinking"]["budget_tokens"],
+        )
 
     # ------------------------------------------------------------------
     # Extra: kill-switch defense-in-depth blocks a disabled tool even if
