@@ -675,19 +675,28 @@ Confidence must be a number from 0.0 to 1.0.
         }
 
     def _post_anthropic(self, payload):
-        """POST to Anthropic with timeouts and exponential backoff."""
+        """POST to the configured LLM provider (Anthropic or Bedrock).
+
+        The method preserves its historical name for backwards compatibility
+        with existing tests that patch ``requests.post`` on this module. Body
+        assembly is delegated so both triage and the agent loop share the
+        same provider dispatch.
+        """
+        provider = self._get_provider()
         api_key = self._get_api_key()
+        if not api_key:
+            raise UserError(
+                _("Configure the AI provider credentials in AI Helpdesk settings."),
+            )
+        url, headers, body = self._build_provider_request(provider, api_key, payload)
+
         last_error = None
         for attempt in range(MAX_RETRIES):
             try:
                 response = requests.post(
-                    ANTHROPIC_API_URL,
-                    headers={
-                        "x-api-key": api_key,
-                        "anthropic-version": ANTHROPIC_API_VERSION,
-                        "content-type": "application/json",
-                    },
-                    json=payload,
+                    url,
+                    headers=headers,
+                    json=body,
                     timeout=REQUEST_TIMEOUT,
                 )
             except (
@@ -726,6 +735,51 @@ Confidence must be a number from 0.0 to 1.0.
                 raise UserError(_("AI service returned invalid JSON.")) from exc
 
         raise UserError(_("AI service did not respond after retries: %s") % last_error)
+
+    def _build_provider_request(self, provider, api_key, payload):
+        """Return (url, headers, body) tuple for the active provider."""
+        body = dict(payload)
+        if provider == "bedrock":
+            icp = self.env["ir.config_parameter"].sudo()
+            region = icp.get_param(
+                "ai_helpdesk_triage.bedrock_region", "us-east-1",
+            ) or "us-east-1"
+            model_id = icp.get_param(
+                "ai_helpdesk_triage.bedrock_model_id",
+                "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            ) or "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+            body.pop("model", None)
+            body.setdefault("anthropic_version", "bedrock-2023-05-31")
+            url = (
+                f"https://bedrock-runtime.{region}.amazonaws.com/"
+                f"model/{model_id}/invoke"
+            )
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            }
+            return url, headers, body
+
+        body.setdefault("model", ANTHROPIC_MODEL)
+        return (
+            ANTHROPIC_API_URL,
+            {
+                "x-api-key": api_key,
+                "anthropic-version": ANTHROPIC_API_VERSION,
+                "content-type": "application/json",
+            },
+            body,
+        )
+
+    def _get_provider(self):
+        """Read the active provider from ir.config_parameter."""
+        value = (
+            self.env["ir.config_parameter"]
+            .sudo()
+            .get_param("ai_helpdesk_triage.provider", "anthropic")
+        )
+        return value if value in ("anthropic", "bedrock") else "anthropic"
 
     def _sleep_before_retry(self, attempt):
         """Back off between transient Anthropic failures."""
@@ -1072,12 +1126,12 @@ Confidence must be a number from 0.0 to 1.0.
         return auto_threshold, review_threshold
 
     def _get_api_key(self):
-        """Read the Anthropic API key without logging or exposing it."""
-        return (
-            self.env["ir.config_parameter"]
-            .sudo()
-            .get_param("ai_helpdesk_triage.anthropic_api_key")
-        )
+        """Read the credential for the active provider without logging it."""
+        icp = self.env["ir.config_parameter"].sudo()
+        provider = self._get_provider()
+        if provider == "bedrock":
+            return icp.get_param("ai_helpdesk_triage.bedrock_api_key")
+        return icp.get_param("ai_helpdesk_triage.anthropic_api_key")
 
     def _get_float_param(self, key, default, minimum=None, maximum=None):
         """Read a float config parameter with defensive defaults."""

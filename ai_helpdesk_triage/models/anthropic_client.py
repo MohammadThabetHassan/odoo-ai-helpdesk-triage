@@ -1,8 +1,13 @@
-"""Shared Anthropic HTTP client used by the agent loop.
+"""Shared LLM HTTP client used by the agent loop.
 
-The triage flow keeps its own copy in helpdesk_ticket for backwards compatibility
-with existing test mocks; this module exists so the agentic resolution loop can
-be tested in isolation without touching the triage code path.
+Supports two providers:
+
+- ``anthropic`` (default): direct Anthropic Messages API.
+- ``bedrock``: Amazon Bedrock hosted Claude models, using Bedrock long-lived
+  API keys as Bearer tokens.
+
+Provider selection and credentials come from ``ir.config_parameter`` — nothing
+about the key or account touches the source tree.
 """
 
 from __future__ import annotations
@@ -19,7 +24,10 @@ except ImportError:  # pragma: no cover - runtime guard
 
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_API_VERSION = "2023-06-01"
-DEFAULT_MODEL = "claude-sonnet-4-6"
+BEDROCK_ANTHROPIC_VERSION = "bedrock-2023-05-31"
+DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
+DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+DEFAULT_BEDROCK_REGION = "us-east-1"
 DEFAULT_MAX_TOKENS = 1500
 REQUEST_TIMEOUT = (5, 60)
 MAX_RETRIES = 3
@@ -29,46 +37,70 @@ INPUT_COST_PER_MILLION = 3.00
 OUTPUT_COST_PER_MILLION = 15.00
 
 
-def get_api_key(env):
-    """Read the Anthropic API key from ir.config_parameter."""
-    return (
+def get_provider(env):
+    """Return the active LLM provider (anthropic or bedrock)."""
+    value = (
         env["ir.config_parameter"]
         .sudo()
-        .get_param("ai_helpdesk_triage.anthropic_api_key")
+        .get_param("ai_helpdesk_triage.provider", "anthropic")
     )
+    return value if value in ("anthropic", "bedrock") else "anthropic"
+
+
+def get_api_key(env):
+    """Return the credential for the active provider."""
+    provider = get_provider(env)
+    icp = env["ir.config_parameter"].sudo()
+    if provider == "bedrock":
+        return icp.get_param("ai_helpdesk_triage.bedrock_api_key")
+    return icp.get_param("ai_helpdesk_triage.anthropic_api_key")
+
+
+def get_bedrock_config(env):
+    """Return the Bedrock region and model ID from settings."""
+    icp = env["ir.config_parameter"].sudo()
+    region = icp.get_param(
+        "ai_helpdesk_triage.bedrock_region", DEFAULT_BEDROCK_REGION,
+    )
+    model_id = icp.get_param(
+        "ai_helpdesk_triage.bedrock_model_id", DEFAULT_BEDROCK_MODEL,
+    )
+    return region or DEFAULT_BEDROCK_REGION, model_id or DEFAULT_BEDROCK_MODEL
 
 
 def estimate_cost(input_tokens, output_tokens):
-    """Estimate USD cost from Anthropic token counts."""
+    """Estimate USD cost from token counts (Sonnet pricing baseline)."""
     input_cost = (input_tokens / 1_000_000) * INPUT_COST_PER_MILLION
     output_cost = (output_tokens / 1_000_000) * OUTPUT_COST_PER_MILLION
     return round(input_cost + output_cost, 6)
 
 
 def post_message(env, payload):
-    """POST to Anthropic with timeouts and exponential backoff.
+    """POST a Messages-compatible payload and return the parsed response.
 
-    Raises UserError on unrecoverable failure. Returns parsed JSON dict.
+    ``payload`` uses the direct Anthropic schema. For Bedrock, the ``model``
+    key is moved to the URL and ``anthropic_version`` is injected into the
+    body — the caller does not need to know which provider is active.
     """
     if requests is None:
         raise UserError(_("The Python 'requests' library is not installed."))
+
+    provider = get_provider(env)
     api_key = get_api_key(env)
     if not api_key:
         raise UserError(
-            _("Configure the Anthropic API key in AI Helpdesk settings."),
+            _("Configure the AI provider credentials in AI Helpdesk settings."),
         )
+
+    url, headers, body = _prepare_request(env, provider, api_key, payload)
 
     last_error = None
     for attempt in range(MAX_RETRIES):
         try:
             response = requests.post(
-                ANTHROPIC_API_URL,
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": ANTHROPIC_API_VERSION,
-                    "content-type": "application/json",
-                },
-                json=payload,
+                url,
+                headers=headers,
+                json=body,
                 timeout=REQUEST_TIMEOUT,
             )
         except (
@@ -109,8 +141,39 @@ def post_message(env, payload):
     raise UserError(_("AI service did not respond after retries: %s") % last_error)
 
 
+def _prepare_request(env, provider, api_key, payload):
+    """Return (url, headers, body) for the active provider."""
+    body = dict(payload)
+    if provider == "bedrock":
+        region, model_id = get_bedrock_config(env)
+        # Bedrock takes the model in the URL; the body carries anthropic_version.
+        body.pop("model", None)
+        body.setdefault("anthropic_version", BEDROCK_ANTHROPIC_VERSION)
+        url = (
+            f"https://bedrock-runtime.{region}.amazonaws.com/"
+            f"model/{model_id}/invoke"
+        )
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        return url, headers, body
+
+    body.setdefault("model", DEFAULT_ANTHROPIC_MODEL)
+    return (
+        ANTHROPIC_API_URL,
+        {
+            "x-api-key": api_key,
+            "anthropic-version": ANTHROPIC_API_VERSION,
+            "content-type": "application/json",
+        },
+        body,
+    )
+
+
 def _sleep_before_retry(attempt):
-    """Back off between transient Anthropic failures."""
+    """Back off between transient failures."""
     if attempt < MAX_RETRIES - 1:
         time.sleep(BACKOFF_SECONDS * (2**attempt))
 

@@ -10,10 +10,43 @@ class ResConfigSettings(models.TransientModel):
 
     _inherit = "res.config.settings"
 
+    ai_provider = fields.Selection(
+        [
+            ("anthropic", "Anthropic (direct)"),
+            ("bedrock", "Amazon Bedrock"),
+        ],
+        default="anthropic",
+        config_parameter="ai_helpdesk_triage.provider",
+        string="LLM Provider",
+        help="Which hosted Claude endpoint to call for triage and resolution.",
+    )
     anthropic_api_key = fields.Char(
         string="Anthropic API Key",
         config_parameter="ai_helpdesk_triage.anthropic_api_key",
-        help="API key used to call the Anthropic Messages API.",
+        help="API key used when the provider is Anthropic (direct).",
+    )
+    bedrock_api_key = fields.Char(
+        string="Bedrock API Key",
+        config_parameter="ai_helpdesk_triage.bedrock_api_key",
+        help=(
+            "AWS Bedrock long-lived API key (used as a Bearer token). "
+            "Only used when the provider is Bedrock."
+        ),
+    )
+    bedrock_region = fields.Char(
+        default="us-east-1",
+        config_parameter="ai_helpdesk_triage.bedrock_region",
+        string="Bedrock Region",
+        help="AWS region hosting the Bedrock runtime endpoint.",
+    )
+    bedrock_model_id = fields.Char(
+        default="us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        config_parameter="ai_helpdesk_triage.bedrock_model_id",
+        string="Bedrock Model ID",
+        help=(
+            "Bedrock model identifier for a Claude family model, e.g. "
+            "us.anthropic.claude-sonnet-4-5-20250929-v1:0."
+        ),
     )
     ai_auto_route_confidence_threshold = fields.Float(
         string="Auto-route Confidence Threshold",
