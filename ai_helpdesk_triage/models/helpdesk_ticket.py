@@ -479,6 +479,8 @@ class HelpdeskTicket(models.Model):
                 "ai_resolution_cost": 0.0,
                 "ai_resolution_reasoning": False,
                 "ai_resolution_reason": False,
+                "ai_resolution_start_at": False,
+                "ai_resolution_end_at": False,
             },
         )
         return True

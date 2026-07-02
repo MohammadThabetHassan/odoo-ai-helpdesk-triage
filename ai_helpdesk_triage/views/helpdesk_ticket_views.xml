@@ -81,7 +81,7 @@
                                 <group string="Signals">
                                     <field name="ai_confidence_percent" widget="progressbar" readonly="1"/>
                                     <field name="ai_review_status" widget="badge" readonly="1"
-                                           decoration-success="ai_review_status == 'auto_routed'"
+                                           decoration-success="ai_review_status == 'accepted'"
                                            decoration-warning="ai_review_status == 'review_recommended'"
                                            decoration-danger="ai_review_status == 'needs_human'"/>
                                 </group>
@@ -149,7 +149,7 @@
                 <field name="user_id" optional="show"/>
                 <field name="ai_confidence_percent" widget="progressbar" optional="hide"/>
                 <field name="ai_review_status" widget="badge" optional="hide"
-                       decoration-success="ai_review_status == 'auto_routed'"
+                       decoration-success="ai_review_status == 'accepted'"
                        decoration-warning="ai_review_status == 'review_recommended'"
                        decoration-danger="ai_review_status == 'needs_human'"/>
                 <field name="state" widget="badge"
@@ -183,7 +183,7 @@
                             <field name="ai_confidence_percent" widget="progressbar"/>
                         </div>
                         <div class="mt-2 d-flex gap-1 flex-wrap">
-                            <span class="badge text-bg-success" invisible="ai_review_status != 'auto_routed'">Auto-routed</span>
+                            <span class="badge text-bg-success" invisible="ai_review_status != 'accepted'">Auto-routed</span>
                             <span class="badge text-bg-warning" invisible="ai_review_status != 'review_recommended'">Review</span>
                             <span class="badge text-bg-danger" invisible="ai_review_status != 'needs_human'">Needs Human</span>
                             <span class="badge text-bg-success" invisible="ai_resolution_status != 'resolved'">AI Resolved</span>

@@ -65,6 +65,10 @@
                                  help="When enabled, high-confidence triaged tickets automatically start the resolution loop.">
                             <field name="ai_auto_resolve_after_triage"/>
                         </setting>
+                        <setting id="ai_helpdesk_disabled_tools" string="Disabled tools (kill switch)"
+                                 help="Comma-separated tool names to hide from the agent, e.g. send_password_reset,resend_invoice_pdf. Overrides the autonomy level for the named tools.">
+                            <field name="ai_disabled_tools" placeholder="send_password_reset,resend_invoice_pdf"/>
+                        </setting>
                     </block>
                     <block title="Spend Visibility" name="ai_helpdesk_triage_spend_settings">
                         <setting id="ai_helpdesk_today_spend" string="Estimated spend today">
