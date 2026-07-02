@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from .tools.escalation_tools import ESCALATION_TOOLS
 from .tools.read_tools import READ_TOOLS
+from .tools.retrieval_tools import RETRIEVAL_TOOLS
 from .tools.write_tools import WRITE_TOOLS
 
-TOOL_REGISTRY = {**READ_TOOLS, **WRITE_TOOLS, **ESCALATION_TOOLS}
+TOOL_REGISTRY = {**READ_TOOLS, **RETRIEVAL_TOOLS, **WRITE_TOOLS, **ESCALATION_TOOLS}
 
 
 AUTONOMY_CLASSES = {
