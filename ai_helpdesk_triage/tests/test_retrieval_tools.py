@@ -176,18 +176,13 @@ class TestFindSimilarTickets(TransactionCase):
         leaky = Ticket.create(
             {
                 "name": "Refund john.smith@acme.com duplicate charge",
-                "description": (
-                    "Handled the refund for the duplicate charge on "
-                    "john.smith@acme.com."
-                ),
+                "description": ("Handled the refund for the duplicate charge on " "john.smith@acme.com."),
                 "category": "billing",
                 "team_id": self.team.id,
                 "ai_triaged": True,
                 "state": "resolved",
                 "ai_resolution_status": "resolved",
-                "ai_resolution_reasoning": (
-                    "Refunded john.smith@acme.com — confirmed at +1 555 111 2222."
-                ),
+                "ai_resolution_reasoning": ("Refunded john.smith@acme.com — confirmed at +1 555 111 2222."),
             },
         )
         # Customer B files a similar-sounding ticket.

@@ -64,6 +64,7 @@
                             <field name="partner_email" readonly="1"/>
                             <field name="category"/>
                             <field name="priority" widget="priority"/>
+                            <field name="satisfaction" readonly="state not in ('resolved', 'closed')"/>
                         </group>
                         <group>
                             <field name="team_id"/>
@@ -223,7 +224,9 @@
                         domain="[('ai_review_status','=','needs_human')]"/>
                 <separator/>
                 <filter string="Urgent" name="urgent" domain="[('priority','=','3')]"/>
+                <filter string="Unhappy" name="unhappy" domain="[('satisfaction','=','unhappy')]"/>
                 <group>
+                    <filter string="Satisfaction" name="group_satisfaction" context="{'group_by': 'satisfaction'}"/>
                     <filter string="Status" name="group_state" context="{'group_by': 'state'}"/>
                     <filter string="Category" name="group_category" context="{'group_by': 'category'}"/>
                     <filter string="Priority" name="group_priority" context="{'group_by': 'priority'}"/>
