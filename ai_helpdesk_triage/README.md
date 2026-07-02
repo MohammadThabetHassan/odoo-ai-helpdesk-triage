@@ -1,15 +1,35 @@
 # AI Helpdesk Triage Agent
 
-`ai_helpdesk_triage` is an Odoo 19 addon that adds a human-reviewed AI triage step to support tickets. Anthropic Claude performs the first pass: category, priority, team routing, draft reply, reasoning, confidence, token usage, and estimated cost. Humans keep control of every operational step after triage.
+An Odoo 19 addon that adds a human-reviewed AI triage step to support tickets, plus an optional autonomous resolution loop. A Claude model classifies the ticket, routes it to a team, drafts a reply, and — on approved categories — calls real Odoo APIs to resolve the ticket end-to-end.
 
-## Workflow
+Humans keep control of every operational step. The AI never closes a ticket by itself.
+
+---
+
+## Two stages, two guardrail sets
+
+### Stage 1 — Triage (always on)
+
+One structured Anthropic tool call returns category, priority, suggested team, draft reply, reasoning, and confidence. The result is validated against a JSON schema. If the model returns an invalid payload, one corrective retry runs before falling back to a safe default.
 
 ```text
-New --[AI Triage]--> AI Triaged --[Assign]--> Assigned --[Start Progress]-->
+New --[AI Triage]--> AI Triaged --[Assign]--> Assigned --[Start]-->
 In Progress --[Resolve]--> Resolved --[Close]--> Closed
 ```
 
-Low-confidence triage stays in `New` with a visible "Needs human triage" banner. The AI never assigns a human, sends a reply, resolves, or closes a ticket.
+Low-confidence triage stays in `New` with a visible "Needs human triage" banner.
+
+### Stage 2 — Agentic resolution (opt-in per category)
+
+After triage, the agent can enter a multi-turn tool-use loop and take action:
+
+- Read tools: `lookup_customer`, `lookup_invoice`, `list_customer_recent_activity`
+- Write tools: `resend_invoice_pdf`, `send_password_reset`, `post_customer_reply`
+- Escalation tools: `create_team_activity`, `escalate_to_human`
+
+Each tool call runs inside a savepoint, is hashed to block duplicates, and is persisted to `ai.helpdesk.action`. The loop terminates when the AI ends its turn, explicitly escalates, hits `max_actions_per_ticket`, or exceeds `action_cost_cap_usd`.
+
+---
 
 ## Architecture
 
@@ -18,175 +38,178 @@ flowchart LR
     Ticket[ai.helpdesk.ticket] --> Lock[Row lock + idempotency guard]
     Lock --> Agent[_call_ai_triage_agent]
     Agent --> Redact[Optional PII redaction]
-    Redact --> Anthropic[Anthropic Messages API tool-use]
-    Anthropic --> Validate[Schema parse + validation]
+    Redact --> LLM[LLM Messages API tool-use]
+    LLM --> Validate[Schema parse + validation]
     Validate -->|invalid| Retry[One corrective retry]
     Retry --> Validate
     Validate --> Gate[Confidence gates]
-    Gate -->|>= auto threshold| Triaged[AI Triaged + routed]
-    Gate -->|review threshold| Review[AI Triaged + review recommended]
-    Gate -->|below review threshold| Human[Stay New + needs human]
-    Triaged --> Chatter[Audit chatter + token/cost telemetry]
+    Gate -->|high| Triaged[AI Triaged + routed]
+    Gate -->|medium| Review[AI Triaged + review recommended]
+    Gate -->|low| Human[Stay New + needs human]
+    Triaged --> Chatter[Audit chatter + telemetry]
     Review --> Chatter
     Human --> Chatter
     Ticket --> Corrections[ai.helpdesk.correction]
+    Triaged --> Resolve[Optional agentic resolution]
+    Resolve --> Loop[Multi-turn tool-use loop]
+    Loop --> Actions[ai.helpdesk.action audit]
 ```
 
-## Models
-
-- `ai.helpdesk.ticket`: ticket workflow, AI result fields, token/cost telemetry, original AI labels, and correction logging hooks.
-- `ai.helpdesk.team`: active routing targets. The AI can only suggest existing active teams.
-- `ai.helpdesk.correction`: labeled examples captured when a human overrides AI category, priority, or team.
-- `ai.helpdesk.action`: audit row per tool call made by the agentic resolution loop.
-- `res.config.settings`: Anthropic API key, confidence thresholds, daily budget, PII redaction, autonomy level, and spend summaries.
-
-## Agentic Resolution
-
-After triage, an operator (or `auto_resolve_after_triage`) can start a multi-turn Anthropic tool-use loop that attempts to resolve the ticket by calling real Odoo APIs. The available toolkit is filtered by autonomy level and by which modules are installed:
-
-- Read tools (any autonomy > off): `lookup_customer`, `lookup_invoice`, `list_customer_recent_activity`.
-- Write tools (autonomy=full and category approved): `resend_invoice_pdf`, `send_password_reset`, `post_customer_reply`.
-- Escalation tools (always): `create_team_activity`, `escalate_to_human`.
-
-Each tool call runs inside a savepoint, is hashed to prevent duplicate calls, and is persisted as an `ai.helpdesk.action` row. The loop terminates when the AI ends its turn, calls `escalate_to_human`, hits `max_actions_per_ticket`, or exceeds `action_cost_cap_usd`. The ticket's `ai_resolution_status` transitions `not_attempted → in_progress → resolved | escalated | failed`.
-
-**Autonomy defaults are safe**: level is `read_only`, no categories are auto-approved for full autonomy, and auto-resolve after triage is off. Managers must explicitly opt in.
+---
 
 ## Installation
 
-From this repo root:
-
-```powershell
-.\venv\Scripts\python.exe odoo-bin -d ai_helpdesk_dev --stop-after-init -i ai_helpdesk_triage --addons-path=addons,server/odoo/Workshop
-```
-
-Or run the Docker stack:
-
 ```bash
+# From the repo root
+python odoo-bin --addons-path=/path/to/odoo/addons,./ \
+                -d ai_helpdesk_dev -i ai_helpdesk_triage --stop-after-init
+
+# Or via the Docker stack
 make up
 ```
 
-Then open Odoo, install **AI Helpdesk Triage Agent**, and grant users the **AI Helpdesk / User** or **AI Helpdesk / Manager** group.
+Then grant users the **AI Helpdesk / User** or **AI Helpdesk / Manager** group.
+
+---
 
 ## Configuration
 
-Open **AI Helpdesk > Configuration > Settings** and set:
+**AI Helpdesk → Configuration → Settings**
 
-- **Anthropic API Key**: stored in `ir.config_parameter` as `ai_helpdesk_triage.anthropic_api_key`.
-- **Auto-route Confidence Threshold**: default `0.85`; moves `New -> AI Triaged` and routes.
-- **Review Confidence Threshold**: default `0.50`; below this, ticket stays `New`.
-- **Daily AI Budget (USD)**: optional guardrail; `0` disables it.
-- **PII redaction**: enabled by default for obvious emails and phone-like values.
+| Setting | Purpose | Default |
+|---|---|---|
+| LLM Provider | Anthropic direct or Amazon Bedrock | Anthropic |
+| API Key | Provider credential (stored in `ir.config_parameter`) | (unset) |
+| Auto-route Confidence Threshold | Above this, ticket auto-routes to *AI Triaged* | 0.85 |
+| Review Confidence Threshold | Below this, ticket stays *New* with review flag | 0.50 |
+| Daily AI Budget (USD) | Combined spend cap across triage + resolution | 0 (disabled) |
+| PII redaction | Strip emails/phone-like values before API call | On |
+| AI Autonomy Level | `off` / `read_only` / `full` | `read_only` |
+| Categories approved for full autonomy | Comma-separated allowlist | (empty) |
+| Max actions per ticket | Hard cap on tool calls per resolution attempt | 5 |
+| Cost cap per ticket (USD) | Mid-loop escalation trigger | 0.50 |
+| Auto-run resolution after triage | Kick off resolve loop on high-confidence tickets | Off |
 
-The cron **AI Helpdesk: Auto-triage new tickets** is installed inactive by default to avoid surprise API spend. Enable it only after configuring the key, teams, budget, and operating policy.
+**Bedrock extras** (visible when provider is Bedrock):
 
-## Runtime Behavior
+| Setting | Purpose |
+|---|---|
+| Bedrock API Key | Long-lived API key, used as a Bearer token |
+| Bedrock Region | AWS region for the runtime endpoint (default `us-east-1`) |
+| Bedrock Model ID | Full Claude model identifier |
 
-`action_ai_triage()` is synchronous and safe against double-clicks through a row lock plus `ai_triage_attempted` guard. The Anthropic client uses tool-use structured output with a JSON schema, request timeouts, transient-error retries with exponential backoff, validation before write, and one corrective retry if the model suggests invalid labels or a missing team.
+The cron **AI Helpdesk: Auto-triage new tickets** is installed inactive by default to avoid surprise API spend.
 
-The list view includes a bulk **AI Triage Selected Tickets** server action. The same `_call_ai_triage_agent()` path is used by manual triage, bulk triage, and the cron so it can move to a queue later without rewriting validation or telemetry.
+---
 
-## What Leaves the Server
+## Models
 
-When AI triage runs, Odoo sends Anthropic:
+| Model | Role |
+|---|---|
+| `ai.helpdesk.ticket` | Ticket workflow, AI results, telemetry, correction hooks, resolution status. |
+| `ai.helpdesk.team` | Active routing targets. The AI can only suggest existing active teams. |
+| `ai.helpdesk.correction` | Human-override snapshots for future model tuning. |
+| `ai.helpdesk.action` | Audit row per tool call in the resolution loop. |
+| `res.config.settings` | Provider selection, credentials, thresholds, budget, autonomy controls. |
 
-- ticket subject;
-- ticket description;
-- customer display name, if set;
-- names of active `ai.helpdesk.team` records;
-- instructions and the tool-use schema.
+---
 
-Odoo does **not** send the stored API key to chatter, logs, or browser views. With PII redaction enabled, obvious email addresses and phone-like values in subject, description, and customer display name are replaced with `[REDACTED_EMAIL]` and `[REDACTED_PHONE]` before the API call.
+## What leaves the server
 
-This redaction is intentionally conservative and does not guarantee full anonymization. For UAE PDPL, GDPR, or similar privacy regimes, deployers should document Anthropic as a processor/subprocessor where applicable, configure retention and regional policies with the vendor, and avoid sending sensitive ticket content without a lawful basis and internal approval.
+When AI triage or resolution runs, Odoo sends the provider:
+
+- Ticket subject
+- Ticket description
+- Customer display name, if set
+- Names of active `ai.helpdesk.team` records
+- Instructions and the tool schemas
+
+Odoo does **not** send the stored API key to chatter, logs, or the browser. With PII redaction on (default), obvious emails and phone-like values in subject, description, and customer display name are replaced with `[REDACTED_EMAIL]` and `[REDACTED_PHONE]` first.
+
+This redaction is intentionally conservative and does not guarantee full anonymization. For UAE PDPL, GDPR, or similar regimes, deployers should document the LLM provider as a subprocessor where applicable, configure retention and regional policies with the vendor, and avoid sending sensitive ticket content without a lawful basis.
+
+---
 
 ## Evaluation
 
-The repo ships a 60-ticket golden set at `data/eval/golden.jsonl` and a runnable harness:
+A 60-ticket golden set lives at `data/eval/golden.jsonl` and a runnable harness:
 
 ```bash
-python server/odoo/Workshop/ai_helpdesk_triage/scripts/evaluate.py
+python scripts/evaluate.py
 ```
 
-The script accepts optional model predictions via `--predictions predictions.jsonl`; without predictions it runs a deterministic offline baseline so CI/reviewers can exercise the metrics path without API credentials.
+The script accepts optional model predictions via `--predictions predictions.jsonl`; without predictions it runs a deterministic offline baseline so CI and reviewers can exercise the metrics path without API credentials.
 
-Current offline baseline results saved in `docs/eval/metrics.json`:
+Current offline baseline (see `docs/eval/metrics.json`):
 
-- Classification accuracy: 90.00%
-- Routing accuracy: 90.00%
-- Priority accuracy: 60.00%
+- Classification accuracy: **90 %**
+- Routing accuracy: **90 %**
+- Priority accuracy: **60 %**
 
-The calibration chart is saved to `docs/eval/confidence_calibration.png`.
+The calibration chart is saved to `docs/eval/confidence_calibration.png`. `matplotlib` is only used by the harness and is not an Odoo runtime dependency.
 
-`matplotlib` is used only by the evaluation harness to render the calibration chart. It is not an Odoo runtime dependency.
+---
 
-## Tests and Tooling
+## Tests
 
 ```bash
-make lint
+# Full module test suite
+python odoo-bin -c odoo.conf -d ai_helpdesk_test -u ai_helpdesk_triage \
+                --test-enable --test-tags /ai_helpdesk_triage --stop-after-init
+
+# Or via Make
 make test
-make eval
 ```
 
-Direct Odoo test command:
+Coverage: parsing validation, workflow state machine, idempotency, security, and end-to-end agent scenarios (triage → resolution → escalation → cost cap → autonomy gating → category allowlist).
 
-```bash
-python odoo-bin -d ai_helpdesk_test --stop-after-init -i ai_helpdesk_triage --test-enable --test-tags /ai_helpdesk_triage --addons-path=addons,server/odoo/Workshop
-```
+Every push triggers GitHub Actions to install Odoo 19 + Postgres 16 from scratch and run lint, evaluation, and the test suite.
 
-CI runs ruff, black check, Odoo module install/tests, and PostgreSQL-backed test execution.
+---
 
-## Security Model
+## Security model
 
-- **AI Helpdesk / User**: read, create, and write module records; no delete.
-- **AI Helpdesk / Manager**: implies User, can delete module records, and can access the Configuration menu.
-- `base.user_admin` is automatically added to the Manager group.
+- **AI Helpdesk / User** — read, create, and write module records; no delete.
+- **AI Helpdesk / Manager** — implies User, can delete module records, and can access the Configuration menu.
+- `base.user_admin` is added to the Manager group automatically.
+- `ai.helpdesk.action` is read-only to users; managers have full write access for retry workflows.
 
-## Human Correction Dataset
+---
 
-When a human changes `category`, `priority`, or `team_id` after an AI triage, the addon creates an `ai.helpdesk.correction` record containing:
+## Human correction dataset
 
-- ticket snapshot;
-- field changed;
-- AI value;
-- human value;
-- confidence and reasoning;
-- correcting user and timestamp.
+Any time a human changes `category`, `priority`, or `team_id` on an AI-triaged ticket, the addon creates an `ai.helpdesk.correction` row containing the ticket snapshot, the field changed, AI value, human value, AI reasoning, and the correcting user + timestamp.
 
-This is the seed for a future fine-tuning/evaluation dataset and is visible through **AI Helpdesk > Configuration > AI Corrections**.
+This is the seed for a future fine-tuning / evaluation dataset. Visible under **AI Helpdesk → Configuration → AI Corrections** as a list, a pivot, and a bar chart by field.
 
-## Ethics and Limitations
+---
 
-The AI output is a recommendation, not a decision-maker. It may misclassify ambiguous tickets, under-prioritize rare incidents, or produce replies that need tone, policy, or legal review. Keep the default human-in-the-loop workflow intact for production use, monitor correction rates, and treat confidence as a calibration signal rather than proof of correctness.
+## Ethics and limitations
 
-## Future Work
+The AI output is a recommendation, not a decision-maker. It may misclassify ambiguous tickets, under-prioritize rare incidents, or produce replies that need tone, policy, or legal review. Keep the default human-in-the-loop workflow intact for production use, monitor correction rates, and treat confidence as a calibration signal — not proof of correctness.
 
-- Move the synchronous Anthropic call to a queue job for high-volume deployments.
+The agentic resolution loop is deliberately narrow. It can only call the tools registered in `models/tool_registry.py`, cannot execute arbitrary code, cannot modify ticket state directly (writes go through the audited tool functions), and always runs behind the autonomy and category gates.
+
+---
+
+## Contributor packets
+
+Six self-contained feature packets live under `docs/tasks/`. Each has scope, deliverables, acceptance criteria, and out-of-scope items. Pick one, work from your own branch, ship the PR.
+
+| Packet | Scope |
+|---|---|
+| A — Ticket tags | New `ai.helpdesk.tag` model + M2M relation |
+| B — Customer satisfaction | Selection field for resolved tickets |
+| C — SLA deadline | Deadline field, overdue detection, list highlight |
+| D — Domain reputation tool | New read-class tool in the agent registry |
+| E — Manager action retry | Retry button on failed `ai.helpdesk.action` rows |
+| F — Resolution latency report | Timestamped fields + pivot/graph report |
+
+---
+
+## Roadmap
+
+- Move the synchronous provider call to a queue job for high-volume deployments.
 - Add per-team routing policies and business-hours-aware priority escalation.
 - Export correction rows back into `data/eval/` after human review.
-- Add provider abstraction for Azure/OpenAI, Bedrock, or on-prem models.
-
-## How to Contribute
-
-Mohammad owns the main agent, Anthropic integration, configuration, and core ticket triage workflow. Teammates should only add the assigned feature enhancements around this working module. Do not rewrite the agent flow or create separate Odoo addons unless Mohammad asks for it.
-
-| GitHub | Owner | Task | Packet |
-| --- | --- | --- | --- |
-| `@rohithsunil` | Rohith Sunil | Add colored ticket tags so support users can label tickets as VIP, Escalated, etc. Rohith must accept the GitHub invite before starting. | `docs/tasks/packet-a-ticket-tags.md` |
-| `@YousufAdeel` | Yousuf Adeel | Add a customer satisfaction marker for resolved tickets, plus filter and group-by options. | `docs/tasks/packet-b-customer-satisfaction.md` |
-| `@Ahmad-hub-bot` | Ahmed Abd Ur Rehman | Add SLA deadline support, overdue detection, list highlighting, and kanban deadline display. | `docs/tasks/packet-c-sla-deadline.md` |
-
-Each teammate should work from their own branch:
-
-```bash
-git pull
-git checkout -b <github-handle>/<packet-name>
-# ...make the small edits described in your packet...
-ruff check .            # and run the module tests
-git -c user.name="<Your Name>" \
-    -c user.email="<your GitHub no-reply email>" \
-    commit -m "feat(...): <your packet step>"
-git push
-```
-
-If an install breaks after your change, revert your last commit, rerun the tests, and ask for review with the failing output.
+- Widen the toolkit (see packets D-F).

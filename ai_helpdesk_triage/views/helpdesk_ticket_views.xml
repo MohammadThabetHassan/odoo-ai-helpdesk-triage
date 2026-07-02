@@ -48,9 +48,6 @@
                         <button class="oe_stat_button" icon="fa-percent" invisible="not ai_triaged">
                             <field name="ai_confidence_percent" widget="statinfo" string="Confidence"/>
                         </button>
-                        <button class="oe_stat_button" icon="fa-dollar" invisible="not ai_total_cost">
-                            <field name="ai_total_cost" widget="statinfo" string="AI Cost"/>
-                        </button>
                         <button class="oe_stat_button" icon="fa-cogs" type="object"
                                 name="action_view_actions" invisible="action_count == 0">
                             <field name="action_count" widget="statinfo" string="Actions"/>
@@ -71,7 +68,7 @@
                         <group>
                             <field name="team_id"/>
                             <field name="user_id"/>
-                            <field name="ai_model" readonly="1" invisible="not ai_model"/>
+                            <field name="ai_model" invisible="1"/>
                             <field name="ai_triaged_date" readonly="1" invisible="not ai_triaged"/>
                         </group>
                     </group>
@@ -88,12 +85,10 @@
                                            decoration-warning="ai_review_status == 'review_recommended'"
                                            decoration-danger="ai_review_status == 'needs_human'"/>
                                 </group>
-                                <group string="Usage">
-                                    <field name="ai_input_tokens" readonly="1"/>
-                                    <field name="ai_output_tokens" readonly="1"/>
-                                    <field name="ai_total_cost" readonly="1"/>
-                                </group>
                             </group>
+                            <field name="ai_input_tokens" invisible="1"/>
+                            <field name="ai_output_tokens" invisible="1"/>
+                            <field name="ai_total_cost" invisible="1"/>
                             <separator string="Reasoning"/>
                             <field name="ai_reasoning" nolabel="1" readonly="1"
                                    placeholder="AI reasoning will appear here after triage."/>
@@ -114,10 +109,10 @@
                                     <field name="ai_resolution_attempts"/>
                                 </group>
                                 <group>
-                                    <field name="ai_resolution_cost"/>
                                     <field name="ai_resolution_reason"/>
                                 </group>
                             </group>
+                            <field name="ai_resolution_cost" invisible="1"/>
                             <separator string="Agent Notes"/>
                             <field name="ai_resolution_reasoning" nolabel="1" readonly="1"/>
                             <separator string="Tool Timeline"/>
@@ -127,7 +122,6 @@
                                     <field name="tool_name"/>
                                     <field name="succeeded" widget="boolean_toggle" readonly="1"/>
                                     <field name="error_message" optional="show"/>
-                                    <field name="cost"/>
                                     <field name="create_date"/>
                                 </list>
                             </field>
