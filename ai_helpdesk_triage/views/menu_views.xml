@@ -11,4 +11,6 @@
     <menuitem id="menu_ai_helpdesk_config_settings" name="Settings" parent="menu_ai_helpdesk_config" action="action_ai_helpdesk_config_settings" sequence="10"/>
 
     <menuitem id="menu_ai_helpdesk_corrections" name="AI Corrections" parent="menu_ai_helpdesk_config" action="action_ai_helpdesk_correction" sequence="20"/>
+
+    <menuitem id="menu_ai_helpdesk_actions" name="AI Actions" parent="menu_ai_helpdesk_config" action="action_ai_helpdesk_action" sequence="30"/>
 </odoo>

@@ -1,6 +1,6 @@
 {
     "name": "AI Helpdesk Triage Agent",
-    "version": "19.0.1.0.0",
+    "version": "19.0.2.0.0",
     "category": "Services/Helpdesk",
     "summary": "Human-reviewed Anthropic triage for support tickets",
     "description": """
@@ -24,6 +24,7 @@ human action.
         "views/helpdesk_ticket_views.xml",
         "views/helpdesk_team_views.xml",
         "views/helpdesk_correction_views.xml",
+        "views/helpdesk_action_views.xml",
         "views/res_config_settings_views.xml",
         "views/menu_views.xml",
     ],

@@ -14,6 +14,8 @@ from markupsafe import Markup, escape
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
+from . import agent_loop
+
 _logger = logging.getLogger(__name__)
 
 try:
@@ -49,6 +51,13 @@ REVIEW_STATUS_SELECTION = [
     ("accepted", "Accepted"),
     ("review_recommended", "Review Recommended"),
     ("needs_human", "Needs Human"),
+]
+RESOLUTION_STATUS_SELECTION = [
+    ("not_attempted", "Not Attempted"),
+    ("in_progress", "In Progress"),
+    ("resolved", "AI Resolved"),
+    ("escalated", "Escalated"),
+    ("failed", "Failed"),
 ]
 CORRECTION_FIELDS = {"category", "priority", "team_id"}
 EMAIL_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
@@ -126,7 +135,36 @@ class HelpdeskTicket(models.Model):
     ai_original_priority = fields.Selection(PRIORITY_SELECTION, readonly=True)
     ai_original_team_id = fields.Many2one("ai.helpdesk.team", readonly=True)
 
+    ai_resolution_status = fields.Selection(
+        RESOLUTION_STATUS_SELECTION,
+        default="not_attempted",
+        readonly=True,
+        tracking=True,
+        string="AI Resolution Status",
+    )
+    ai_resolution_attempts = fields.Integer(readonly=True, default=0)
+    ai_resolution_cost = fields.Float(readonly=True, digits=(10, 4))
+    ai_resolution_reasoning = fields.Text(readonly=True, string="AI Resolution Notes")
+    ai_resolution_reason = fields.Char(
+        readonly=True,
+        string="Termination Reason",
+        help="Machine-readable reason the resolution loop ended.",
+    )
+    ai_resolution_in_progress = fields.Boolean(default=False, readonly=True)
+    action_ids = fields.One2many(
+        "ai.helpdesk.action",
+        "ticket_id",
+        string="AI Actions",
+    )
+    action_count = fields.Integer(compute="_compute_action_count", string="Actions")
+
     color = fields.Integer()
+
+    @api.depends("action_ids")
+    def _compute_action_count(self):
+        """Count agent actions on this ticket for the smart button."""
+        for ticket in self:
+            ticket.action_count = len(ticket.action_ids)
 
     @api.model
     def _expand_states(self, states, domain):
@@ -196,6 +234,176 @@ class HelpdeskTicket(models.Model):
             }
         return True
 
+    def action_ai_resolve(self):
+        """Run the agentic resolution loop on triaged tickets."""
+        for ticket in self:
+            ticket._lock_for_resolve()
+            ticket._ensure_can_resolve()
+            autonomy_level = ticket._get_autonomy_level()
+            if autonomy_level == "off":
+                raise UserError(
+                    _("Autonomous resolution is disabled in AI Helpdesk settings."),
+                )
+            if autonomy_level == "full":
+                ticket._ensure_category_allowed_for_full_autonomy()
+
+            ticket.with_context(ai_skip_correction_log=True).write(
+                {"ai_resolution_in_progress": True, "ai_resolution_status": "in_progress"},
+            )
+
+            max_actions = int(
+                ticket._get_float_param(
+                    "ai_helpdesk_triage.max_actions_per_ticket",
+                    5,
+                    minimum=1,
+                    maximum=20,
+                ),
+            )
+            cost_cap = ticket._get_float_param(
+                "ai_helpdesk_triage.action_cost_cap_usd",
+                0.5,
+                minimum=0.0,
+            )
+            try:
+                result = agent_loop.run(
+                    ticket.env,
+                    ticket,
+                    autonomy_level,
+                    max_actions,
+                    cost_cap,
+                )
+            except UserError:
+                ticket.with_context(ai_skip_correction_log=True).write(
+                    {
+                        "ai_resolution_in_progress": False,
+                        "ai_resolution_status": "failed",
+                    },
+                )
+                raise
+            except Exception as exc:  # noqa: BLE001
+                _logger.exception("Agent loop failed for ticket %s", ticket.id)
+                ticket.with_context(ai_skip_correction_log=True).write(
+                    {
+                        "ai_resolution_in_progress": False,
+                        "ai_resolution_status": "failed",
+                    },
+                )
+                raise UserError(_("Agent resolution failed: %s") % str(exc)) from exc
+
+            ticket._apply_agent_loop_result(result)
+            ticket._post_ai_resolution_message(result)
+        return True
+
+    def _lock_for_resolve(self):
+        """Serialize resolution attempts to prevent concurrent runs."""
+        self.ensure_one()
+        self.env.cr.execute(
+            f"SELECT id FROM {self._table} WHERE id = %s FOR UPDATE",
+            [self.id],
+        )
+        if hasattr(self, "invalidate_recordset"):
+            self.invalidate_recordset(
+                ["ai_resolution_status", "ai_resolution_in_progress"],
+            )
+
+    def _ensure_can_resolve(self):
+        """Reject invalid resolution attempts before calling the API."""
+        self.ensure_one()
+        if self.state != "ai_triaged":
+            raise UserError(
+                _("Only AI-triaged tickets can be resolved by the agent."),
+            )
+        if self.ai_resolution_in_progress:
+            raise UserError(_("Resolution is already running for this ticket."))
+        if self.ai_resolution_status not in ("not_attempted", "failed"):
+            raise UserError(
+                _("This ticket already has a resolution attempt (%s).")
+                % self.ai_resolution_status,
+            )
+
+    def _ensure_category_allowed_for_full_autonomy(self):
+        """Guard full-autonomy writes to configured categories only."""
+        self.ensure_one()
+        raw = (
+            self.env["ir.config_parameter"]
+            .sudo()
+            .get_param("ai_helpdesk_triage.autonomy_categories", "")
+            or ""
+        )
+        allowed = {item.strip() for item in raw.split(",") if item.strip()}
+        if not allowed:
+            raise UserError(
+                _(
+                    "Full autonomy is enabled but no categories are approved. "
+                    "Add categories in AI Helpdesk settings.",
+                ),
+            )
+        if self.category not in allowed:
+            raise UserError(
+                _("Category %s is not approved for autonomous resolution.")
+                % (self.category or "unknown"),
+            )
+
+    def _get_autonomy_level(self):
+        """Read autonomy level from ir.config_parameter."""
+        value = (
+            self.env["ir.config_parameter"]
+            .sudo()
+            .get_param("ai_helpdesk_triage.autonomy_level", "read_only")
+        )
+        return value if value in ("off", "read_only", "full") else "read_only"
+
+    def _apply_agent_loop_result(self, result):
+        """Persist the outcome of an agent loop to the ticket."""
+        self.ensure_one()
+        self.with_context(ai_skip_correction_log=True).write(
+            {
+                "ai_resolution_status": result.status,
+                "ai_resolution_in_progress": False,
+                "ai_resolution_attempts": (self.ai_resolution_attempts or 0) + 1,
+                "ai_resolution_cost": (self.ai_resolution_cost or 0.0) + result.cost,
+                "ai_resolution_reasoning": result.reasoning or False,
+                "ai_resolution_reason": result.reason or False,
+            },
+        )
+
+    def _post_ai_resolution_message(self, result):
+        """Post a chatter summary of the agent loop result."""
+        self.ensure_one()
+        title = _("AI resolution complete") if result.status == "resolved" else _(
+            "AI resolution ended: %s",
+        ) % result.status
+        body = Markup(
+            "<p><strong>%s</strong></p>"
+            "<ul>"
+            "<li>Actions taken: %s</li>"
+            "<li>Total cost: $%.6f</li>"
+            "<li>Tokens: %s input / %s output</li>"
+            "<li>Termination reason: %s</li>"
+            "</ul>"
+            "<p><strong>Agent notes:</strong> %s</p>",
+        ) % (
+            escape(title),
+            len(result.actions),
+            result.cost,
+            result.tokens.get("input", 0),
+            result.tokens.get("output", 0),
+            escape(result.reason or "-"),
+            escape(result.reasoning or _("(no notes)")),
+        )
+        self.message_post(body=body)
+
+    def action_view_actions(self):
+        """Open the AI Actions related to this ticket."""
+        self.ensure_one()
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("AI Actions"),
+            "res_model": "ai.helpdesk.action",
+            "view_mode": "list,form",
+            "domain": [("ticket_id", "=", self.id)],
+        }
+
     def action_assign(self):
         """Move an AI-triaged ticket to Assigned after a human picks an owner."""
         for ticket in self:
@@ -250,6 +458,12 @@ class HelpdeskTicket(models.Model):
                 "ai_original_category": False,
                 "ai_original_priority": False,
                 "ai_original_team_id": False,
+                "ai_resolution_status": "not_attempted",
+                "ai_resolution_in_progress": False,
+                "ai_resolution_attempts": 0,
+                "ai_resolution_cost": 0.0,
+                "ai_resolution_reasoning": False,
+                "ai_resolution_reason": False,
             },
         )
         return True

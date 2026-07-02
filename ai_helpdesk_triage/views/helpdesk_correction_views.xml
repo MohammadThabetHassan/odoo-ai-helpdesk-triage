@@ -10,7 +10,7 @@
                 <field name="field_name"/>
                 <field name="ai_value"/>
                 <field name="human_value"/>
-                <field name="ai_confidence"/>
+                <field name="ai_confidence" widget="percentage"/>
                 <field name="user_id"/>
             </list>
         </field>
@@ -25,24 +25,35 @@
                     <button name="action_open_ticket" type="object" string="Open Ticket" class="btn-primary"/>
                 </header>
                 <sheet>
-                    <group>
-                        <group>
-                            <field name="ticket_id"/>
-                            <field name="corrected_at"/>
-                            <field name="user_id"/>
+                    <div class="oe_title">
+                        <h2>
                             <field name="field_name"/>
-                        </group>
-                        <group>
+                            <span class="text-muted"> corrected on </span>
+                            <field name="ticket_id"/>
+                        </h2>
+                    </div>
+                    <group>
+                        <group string="Correction">
                             <field name="ai_value"/>
                             <field name="human_value"/>
                             <field name="ai_confidence" widget="percentage"/>
                         </group>
+                        <group string="Metadata">
+                            <field name="corrected_at"/>
+                            <field name="user_id"/>
+                        </group>
                     </group>
-                    <group string="Ticket Snapshot">
-                        <field name="ticket_name"/>
-                        <field name="ticket_description"/>
-                        <field name="ai_reasoning"/>
-                    </group>
+                    <notebook>
+                        <page string="Ticket Snapshot" name="ticket_snapshot">
+                            <group>
+                                <field name="ticket_name"/>
+                            </group>
+                            <separator string="Description at time of triage"/>
+                            <field name="ticket_description" nolabel="1" readonly="1"/>
+                            <separator string="AI Reasoning"/>
+                            <field name="ai_reasoning" nolabel="1" readonly="1"/>
+                        </page>
+                    </notebook>
                 </sheet>
             </form>
         </field>
@@ -68,6 +79,23 @@
                 <field name="field_name"/>
                 <field name="id" type="measure"/>
             </graph>
+        </field>
+    </record>
+
+    <record id="view_ai_helpdesk_correction_search" model="ir.ui.view">
+        <field name="name">ai.helpdesk.correction.search</field>
+        <field name="model">ai.helpdesk.correction</field>
+        <field name="arch" type="xml">
+            <search string="Search AI Corrections">
+                <field name="ticket_id"/>
+                <field name="field_name"/>
+                <field name="user_id"/>
+                <group>
+                    <filter string="Field" name="group_field" context="{'group_by': 'field_name'}"/>
+                    <filter string="Reviewer" name="group_user" context="{'group_by': 'user_id'}"/>
+                    <filter string="Correction Date" name="group_date" context="{'group_by': 'corrected_at'}"/>
+                </group>
+            </search>
         </field>
     </record>
 

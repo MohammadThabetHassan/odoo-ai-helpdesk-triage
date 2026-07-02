@@ -11,20 +11,27 @@
                             <field name="ticket_count" widget="statinfo" string="Tickets"/>
                         </button>
                     </div>
+                    <widget name="web_ribbon" title="Archived" bg_color="text-bg-danger" invisible="active"/>
                     <div class="oe_title">
                         <label for="name"/>
                         <h1><field name="name" placeholder="e.g. Technical Support"/></h1>
                     </div>
                     <group>
                         <group>
-                            <field name="member_ids" widget="many2many_tags"/>
+                            <field name="member_ids" widget="many2many_tags"
+                                   options="{'no_create_edit': True}"/>
                             <field name="color" widget="color_picker"/>
-                            <field name="active"/>
                         </group>
                         <group>
-                            <field name="description"/>
+                            <field name="active" invisible="1"/>
                         </group>
                     </group>
+                    <notebook>
+                        <page string="Description" name="description">
+                            <field name="description" nolabel="1"
+                                   placeholder="What does this team handle? The AI uses this text to route tickets."/>
+                        </page>
+                    </notebook>
                 </sheet>
             </form>
         </field>
@@ -38,8 +45,20 @@
                 <field name="name"/>
                 <field name="member_ids" widget="many2many_tags"/>
                 <field name="ticket_count"/>
-                <field name="active"/>
+                <field name="active" optional="hide"/>
             </list>
+        </field>
+    </record>
+
+    <record id="view_ai_helpdesk_team_search" model="ir.ui.view">
+        <field name="name">ai.helpdesk.team.search</field>
+        <field name="model">ai.helpdesk.team</field>
+        <field name="arch" type="xml">
+            <search string="Search Teams">
+                <field name="name"/>
+                <field name="member_ids"/>
+                <filter string="Archived" name="inactive" domain="[('active','=',False)]"/>
+            </search>
         </field>
     </record>
 

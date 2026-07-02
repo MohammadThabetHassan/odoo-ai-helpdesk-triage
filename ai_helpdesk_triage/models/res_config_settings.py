@@ -48,6 +48,53 @@ class ResConfigSettings(models.TransientModel):
         compute="_compute_ai_spend",
         readonly=True,
     )
+    ai_autonomy_level = fields.Selection(
+        [
+            ("off", "Off (triage only)"),
+            ("read_only", "Read-only (lookups + escalation)"),
+            ("full", "Full (also perform write actions)"),
+        ],
+        default="read_only",
+        config_parameter="ai_helpdesk_triage.autonomy_level",
+        string="AI Autonomy Level",
+        help=(
+            "Controls what the AI can do after triage. read_only allows the AI "
+            "to look things up and escalate; full also lets it send emails and "
+            "reset passwords on the categories you approve below."
+        ),
+    )
+    ai_max_actions_per_ticket = fields.Integer(
+        default=5,
+        config_parameter="ai_helpdesk_triage.max_actions_per_ticket",
+        string="Max Actions per Ticket",
+        help="Upper bound on tool calls per resolution attempt.",
+    )
+    ai_action_cost_cap_usd = fields.Float(
+        default=0.5,
+        config_parameter="ai_helpdesk_triage.action_cost_cap_usd",
+        string="Cost Cap per Ticket (USD)",
+        help=(
+            "Terminate the resolution loop when cumulative cost exceeds this "
+            "value. Zero disables the cap."
+        ),
+    )
+    ai_autonomy_categories = fields.Char(
+        config_parameter="ai_helpdesk_triage.autonomy_categories",
+        string="Categories Approved for Full Autonomy",
+        help=(
+            "Comma-separated list of categories eligible for full autonomy "
+            "(e.g. billing,technical). Ignored when level is off/read_only."
+        ),
+    )
+    ai_auto_resolve_after_triage = fields.Boolean(
+        default=False,
+        config_parameter="ai_helpdesk_triage.auto_resolve_after_triage",
+        string="Auto-run Resolution After Triage",
+        help=(
+            "When enabled, tickets that pass triage confidence gates trigger "
+            "the resolution loop automatically."
+        ),
+    )
 
     def _compute_ai_spend(self):
         """Compute visible spend summaries from ticket-level telemetry."""

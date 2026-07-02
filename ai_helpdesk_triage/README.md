@@ -37,7 +37,20 @@ flowchart LR
 - `ai.helpdesk.ticket`: ticket workflow, AI result fields, token/cost telemetry, original AI labels, and correction logging hooks.
 - `ai.helpdesk.team`: active routing targets. The AI can only suggest existing active teams.
 - `ai.helpdesk.correction`: labeled examples captured when a human overrides AI category, priority, or team.
-- `res.config.settings`: Anthropic API key, confidence thresholds, daily budget, PII redaction, and spend summaries.
+- `ai.helpdesk.action`: audit row per tool call made by the agentic resolution loop.
+- `res.config.settings`: Anthropic API key, confidence thresholds, daily budget, PII redaction, autonomy level, and spend summaries.
+
+## Agentic Resolution
+
+After triage, an operator (or `auto_resolve_after_triage`) can start a multi-turn Anthropic tool-use loop that attempts to resolve the ticket by calling real Odoo APIs. The available toolkit is filtered by autonomy level and by which modules are installed:
+
+- Read tools (any autonomy > off): `lookup_customer`, `lookup_invoice`, `list_customer_recent_activity`.
+- Write tools (autonomy=full and category approved): `resend_invoice_pdf`, `send_password_reset`, `post_customer_reply`.
+- Escalation tools (always): `create_team_activity`, `escalate_to_human`.
+
+Each tool call runs inside a savepoint, is hashed to prevent duplicate calls, and is persisted as an `ai.helpdesk.action` row. The loop terminates when the AI ends its turn, calls `escalate_to_human`, hits `max_actions_per_ticket`, or exceeds `action_cost_cap_usd`. The ticket's `ai_resolution_status` transitions `not_attempted → in_progress → resolved | escalated | failed`.
+
+**Autonomy defaults are safe**: level is `read_only`, no categories are auto-approved for full autonomy, and auto-resolve after triage is off. Managers must explicitly opt in.
 
 ## Installation
 
@@ -153,3 +166,27 @@ The AI output is a recommendation, not a decision-maker. It may misclassify ambi
 - Export correction rows back into `data/eval/` after human review.
 - Add provider abstraction for Azure/OpenAI, Bedrock, or on-prem models.
 
+## How to Contribute
+
+Mohammad owns the main agent, Anthropic integration, configuration, and core ticket triage workflow. Teammates should only add the assigned feature enhancements around this working module. Do not rewrite the agent flow or create separate Odoo addons unless Mohammad asks for it.
+
+| GitHub | Owner | Task | Packet |
+| --- | --- | --- | --- |
+| `@rohithsunil` | Rohith Sunil | Add colored ticket tags so support users can label tickets as VIP, Escalated, etc. Rohith must accept the GitHub invite before starting. | `docs/beginner-tasks/packet-a-ticket-tags.md` |
+| `@YousufAdeel` | Yousuf Adeel | Add a customer satisfaction marker for resolved tickets, plus filter and group-by options. | `docs/beginner-tasks/packet-b-customer-satisfaction.md` |
+| `@Ahmad-hub-bot` | Ahmed Abd Ur Rehman | Add SLA deadline support, overdue detection, list highlighting, and kanban deadline display. | `docs/beginner-tasks/packet-c-sla-deadline.md` |
+
+Each teammate should work from their own branch:
+
+```bash
+git pull
+git checkout -b <github-handle>/<packet-name>
+# ...make the small edits described in your packet...
+ruff check .            # and run the module tests
+git -c user.name="<Your Name>" \
+    -c user.email="<your GitHub no-reply email>" \
+    commit -m "feat(...): <your packet step>"
+git push
+```
+
+If an install breaks after your change, revert your last commit, rerun the tests, and ask for review with the failing output.

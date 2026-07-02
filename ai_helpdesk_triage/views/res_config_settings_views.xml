@@ -26,6 +26,28 @@
                             <field name="ai_daily_budget_usd"/>
                         </setting>
                     </block>
+                    <block title="Agentic Resolution" name="ai_helpdesk_triage_autonomy_settings">
+                        <setting id="ai_helpdesk_autonomy_level" string="Autonomy level"
+                                 help="off: triage only. read_only: lookups + escalation. full: also write actions.">
+                            <field name="ai_autonomy_level"/>
+                        </setting>
+                        <setting id="ai_helpdesk_autonomy_categories" string="Categories approved for full autonomy"
+                                 help="Comma list, e.g. billing,technical. Required for full-autonomy writes.">
+                            <field name="ai_autonomy_categories" placeholder="billing,technical"/>
+                        </setting>
+                        <setting id="ai_helpdesk_max_actions" string="Max actions per ticket"
+                                 help="Hard cap on tool calls per resolution attempt.">
+                            <field name="ai_max_actions_per_ticket"/>
+                        </setting>
+                        <setting id="ai_helpdesk_action_cost_cap" string="Cost cap per ticket (USD)"
+                                 help="Terminate the loop when the ticket's resolution cost exceeds this value. Zero disables.">
+                            <field name="ai_action_cost_cap_usd"/>
+                        </setting>
+                        <setting id="ai_helpdesk_auto_resolve" string="Auto-run resolution after triage"
+                                 help="When enabled, high-confidence triaged tickets automatically start the resolution loop.">
+                            <field name="ai_auto_resolve_after_triage"/>
+                        </setting>
+                    </block>
                     <block title="Spend Visibility" name="ai_helpdesk_triage_spend_settings">
                         <setting id="ai_helpdesk_today_spend" string="Estimated spend today">
                             <field name="ai_today_spend_usd" readonly="1"/>

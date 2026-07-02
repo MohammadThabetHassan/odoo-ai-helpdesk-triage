@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_ai_helpdesk_action_list" model="ir.ui.view">
+        <field name="name">ai.helpdesk.action.list</field>
+        <field name="model">ai.helpdesk.action</field>
+        <field name="arch" type="xml">
+            <list string="AI Actions" create="0" edit="0"
+                  decoration-danger="not succeeded"
+                  decoration-success="succeeded">
+                <field name="create_date"/>
+                <field name="ticket_id"/>
+                <field name="sequence"/>
+                <field name="tool_name"/>
+                <field name="succeeded" widget="boolean_toggle" readonly="1"/>
+                <field name="error_message" optional="hide"/>
+                <field name="duration_ms" optional="hide"/>
+                <field name="cost" optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ai_helpdesk_action_form" model="ir.ui.view">
+        <field name="name">ai.helpdesk.action.form</field>
+        <field name="model">ai.helpdesk.action</field>
+        <field name="arch" type="xml">
+            <form string="AI Action" create="0" edit="0">
+                <header>
+                    <button name="action_open_ticket" type="object"
+                            string="Open Ticket" class="btn-primary"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h2>
+                            <field name="tool_name"/>
+                            <span class="text-muted"> on </span>
+                            <field name="ticket_id"/>
+                        </h2>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="sequence"/>
+                            <field name="succeeded" widget="boolean_toggle"/>
+                            <field name="error_message" invisible="succeeded"/>
+                            <field name="duration_ms"/>
+                            <field name="cost"/>
+                        </group>
+                        <group>
+                            <field name="ai_confidence" widget="percentage"/>
+                            <field name="input_tokens"/>
+                            <field name="output_tokens"/>
+                            <field name="create_date"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Tool Input" name="tool_input">
+                            <field name="tool_input" nolabel="1" readonly="1"/>
+                        </page>
+                        <page string="Tool Result" name="tool_result">
+                            <field name="tool_result" nolabel="1" readonly="1"/>
+                        </page>
+                        <page string="AI Reasoning" name="ai_reasoning">
+                            <field name="ai_reasoning" nolabel="1" readonly="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_ai_helpdesk_action_pivot" model="ir.ui.view">
+        <field name="name">ai.helpdesk.action.pivot</field>
+        <field name="model">ai.helpdesk.action</field>
+        <field name="arch" type="xml">
+            <pivot string="AI Actions">
+                <field name="tool_name" type="row"/>
+                <field name="succeeded" type="col"/>
+                <field name="cost" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="view_ai_helpdesk_action_search" model="ir.ui.view">
+        <field name="name">ai.helpdesk.action.search</field>
+        <field name="model">ai.helpdesk.action</field>
+        <field name="arch" type="xml">
+            <search string="Search AI Actions">
+                <field name="ticket_id"/>
+                <field name="tool_name"/>
+                <filter string="Succeeded" name="succeeded" domain="[('succeeded','=',True)]"/>
+                <filter string="Failed" name="failed" domain="[('succeeded','=',False)]"/>
+                <group>
+                    <filter string="Tool" name="group_tool" context="{'group_by': 'tool_name'}"/>
+                    <filter string="Ticket" name="group_ticket" context="{'group_by': 'ticket_id'}"/>
+                    <filter string="Date" name="group_date" context="{'group_by': 'create_date'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_ai_helpdesk_action" model="ir.actions.act_window">
+        <field name="name">AI Actions</field>
+        <field name="res_model">ai.helpdesk.action</field>
+        <field name="view_mode">list,pivot,form</field>
+    </record>
+</odoo>
