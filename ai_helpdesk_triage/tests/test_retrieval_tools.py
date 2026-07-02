@@ -167,3 +167,82 @@ class TestFindSimilarTickets(TransactionCase):
         )
         self.assertTrue(result["ok"])
         self.assertEqual(result["data"]["tickets"], [])
+
+    def test_pii_is_redacted_across_customer_boundary(self):
+        """Subjects and resolution notes from other customers must be scrubbed."""
+        # Seed a resolved ticket whose subject and notes both leak PII of
+        # customer A.
+        Ticket = self.env["ai.helpdesk.ticket"].sudo()
+        leaky = Ticket.create(
+            {
+                "name": "Refund john.smith@acme.com duplicate charge",
+                "description": (
+                    "Handled the refund for the duplicate charge on "
+                    "john.smith@acme.com."
+                ),
+                "category": "billing",
+                "team_id": self.team.id,
+                "ai_triaged": True,
+                "state": "resolved",
+                "ai_resolution_status": "resolved",
+                "ai_resolution_reasoning": (
+                    "Refunded john.smith@acme.com — confirmed at +1 555 111 2222."
+                ),
+            },
+        )
+        # Customer B files a similar-sounding ticket.
+        current = self.env["ai.helpdesk.ticket"].create(
+            {
+                "name": "Refund a duplicate charge",
+                "description": "I was double-billed.",
+                "team_id": self.team.id,
+            },
+        )
+        # Confirm redaction is on by default and verify the tool honors it.
+        self.env["ir.config_parameter"].sudo().set_param(
+            "ai_helpdesk_triage.redact_pii",
+            "True",
+        )
+        result = find_similar_tickets(
+            self.env,
+            current,
+            query="refund duplicate charge",
+        )
+        hit = next(t for t in result["data"]["tickets"] if t["id"] == leaky.id)
+        self.assertNotIn("john.smith@acme.com", hit["subject"])
+        self.assertNotIn("john.smith@acme.com", hit["resolution_notes"])
+        self.assertNotIn("+1 555 111 2222", hit["resolution_notes"])
+        self.assertIn("[REDACTED_EMAIL]", hit["subject"])
+
+    def test_tool_sequence_filters_reflection_check_meta_rows(self):
+        """Reflection audit rows must not pollute the few-shot tool sequence."""
+        Action = self.env["ai.helpdesk.action"].sudo()
+        # Append a reflection_check meta-row to the invoice ticket's history.
+        Action.create(
+            {
+                "ticket_id": self.resolved_invoice.id,
+                "sequence": 3,
+                "tool_name": "reflection_check",
+                "tool_input": '{"asked": "did last action solve the ask"}',
+                "tool_result": '{"ok": true}',
+                "succeeded": True,
+            },
+        )
+        current = self.env["ai.helpdesk.ticket"].create(
+            {
+                "name": "Please resend my invoice",
+                "description": "I did not receive the invoice PDF for last month.",
+                "team_id": self.team.id,
+            },
+        )
+        result = find_similar_tickets(
+            self.env,
+            current,
+            query="invoice PDF resend",
+        )
+        hit = next(t for t in result["data"]["tickets"] if t["subject"].startswith("Missing invoice"))
+        self.assertNotIn("reflection_check", hit["tool_sequence"])
+        self.assertEqual(
+            hit["tool_sequence"],
+            ["lookup_invoice", "resend_invoice_pdf"],
+        )

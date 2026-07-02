@@ -1,4 +1,10 @@
-"""Unit tests for the update_customer_contact write tool."""
+"""Unit tests for the update_customer_contact write tool.
+
+Every legitimate update requires the new value to appear verbatim in
+the ticket subject or description — that's the ATO guardrail. Tests
+below either supply values that appear in the ticket text or assert
+the refusal codes for values that do not.
+"""
 
 from odoo.addons.ai_helpdesk_triage.models.tools.write_tools import (
     update_customer_contact,
@@ -24,11 +30,12 @@ class TestUpdateCustomerContact(TransactionCase):
             {"name": "Support", "description": "General"},
         )
 
-    def _ticket(self, with_partner=True):
+    def _ticket(self, description=None, with_partner=True):
         return self.env["ai.helpdesk.ticket"].create(
             {
-                "name": "Please update my email",
-                "description": "I want to change my email address.",
+                "name": "Please update my contact info",
+                "description": description
+                or ("Please switch my email to new@example.com and my phone " "to +1 555 999 8888 — thanks."),
                 "partner_id": self.partner.id if with_partner else False,
                 "team_id": self.team.id,
             },
@@ -43,7 +50,9 @@ class TestUpdateCustomerContact(TransactionCase):
 
     def test_no_changes_when_values_match(self):
         """Passing the current stored values is a no-op success."""
-        ticket = self._ticket()
+        ticket = self._ticket(
+            description="My old.address@example.com and +1 555 111 2222 are correct.",
+        )
         result = update_customer_contact(
             self.env,
             ticket,
@@ -55,7 +64,7 @@ class TestUpdateCustomerContact(TransactionCase):
         self.assertEqual(result["data"]["reason"], "no_changes")
 
     def test_updates_email_and_phone(self):
-        """Both fields change together when new values are supplied."""
+        """Both fields change together when the values appear in the ticket text."""
         ticket = self._ticket()
         result = update_customer_contact(
             self.env,
@@ -71,7 +80,9 @@ class TestUpdateCustomerContact(TransactionCase):
 
     def test_partial_update_email_only(self):
         """Passing only email leaves phone untouched."""
-        ticket = self._ticket()
+        ticket = self._ticket(
+            description="Please switch my email to only-email@example.com.",
+        )
         old_phone = self.partner.phone
         result = update_customer_contact(
             self.env,
@@ -85,7 +96,9 @@ class TestUpdateCustomerContact(TransactionCase):
 
     def test_posts_audit_note_to_ticket(self):
         """A successful change leaves an old → new note in the chatter."""
-        ticket = self._ticket()
+        ticket = self._ticket(
+            description="Please switch my email to audit@example.com.",
+        )
         prior_message_count = len(ticket.message_ids)
         update_customer_contact(self.env, ticket, email="audit@example.com")
         self.assertGreater(len(ticket.message_ids), prior_message_count)
@@ -93,3 +106,48 @@ class TestUpdateCustomerContact(TransactionCase):
         body = latest.body or ""
         self.assertIn("email", body)
         self.assertIn("audit@example.com", body)
+
+    # ------------------------------------------------------------------
+    # Account-takeover guardrails
+    # ------------------------------------------------------------------
+    def test_refuses_value_not_in_ticket_text(self):
+        """Reject an email the ticket text does not mention (ATO chain block)."""
+        ticket = self._ticket(
+            description="Please investigate slow login and reset my password.",
+        )
+        result = update_customer_contact(
+            self.env,
+            ticket,
+            email="attacker@evil.com",
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "value_not_in_ticket_text")
+        # Partner data must be untouched.
+        self.partner.invalidate_recordset(["email"])
+        self.assertEqual(self.partner.email, "old.address@example.com")
+
+    def test_refuses_denylisted_email_domain(self):
+        """Reject even a text-matching email if it's on the throwaway denylist."""
+        ticket = self._ticket(
+            description="Please switch my email to throwaway@mailinator.com.",
+        )
+        result = update_customer_contact(
+            self.env,
+            ticket,
+            email="throwaway@mailinator.com",
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "denylisted_email_domain")
+
+    def test_refuses_phone_not_in_ticket_text(self):
+        """Same guard on phone: mismatched values refuse without writing."""
+        ticket = self._ticket(
+            description="Please reset my password.",
+        )
+        result = update_customer_contact(
+            self.env,
+            ticket,
+            phone="+1 555 000 0001",
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "value_not_in_ticket_text")

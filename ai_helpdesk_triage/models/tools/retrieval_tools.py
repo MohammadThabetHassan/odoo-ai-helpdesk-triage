@@ -72,16 +72,32 @@ def find_similar_tickets(env, ticket, query, limit=5):
     if not rows:
         return {"ok": True, "data": {"tickets": []}}
     hits = env["ai.helpdesk.ticket"].sudo().browse([row[0] for row in rows])
+    # Free-text ticket subjects and human-authored resolution notes belong
+    # to OTHER customers and often carry the email/phone that the current
+    # loop's redact_pii toggle promises to keep out of provider logs. The
+    # tool_sequence also picks up reflection_check meta-rows the model
+    # cannot invoke — dropping those keeps the few-shot honest and stops
+    # the defense-in-depth from having to refuse a hallucinated call.
+    redact = ticket._get_bool_param("ai_helpdesk_triage.redact_pii", default=True)
+
+    def _clean(text):
+        text = text or ""
+        return ticket._redact_pii(text) if redact else text
+
     return {
         "ok": True,
         "data": {
             "tickets": [
                 {
                     "id": hit.id,
-                    "subject": hit.name,
+                    "subject": _clean(hit.name),
                     "category": hit.category or "",
-                    "tool_sequence": hit.action_ids.sorted("sequence").mapped("tool_name"),
-                    "resolution_notes": (hit.ai_resolution_reasoning or "")[:400],
+                    "tool_sequence": [
+                        name
+                        for name in hit.action_ids.sorted("sequence").mapped("tool_name")
+                        if name != "reflection_check"
+                    ],
+                    "resolution_notes": _clean(hit.ai_resolution_reasoning)[:400],
                 }
                 for hit in hits
             ],

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from markupsafe import Markup, escape
 
+from .reputation_tools import DENYLISTED_DOMAINS
+
 RESEND_INVOICE_SCHEMA = {
     "name": "resend_invoice_pdf",
     "description": (
@@ -187,17 +189,49 @@ def post_customer_reply(env, ticket, body):
 
 
 def update_customer_contact(env, ticket, email=None, phone=None):
-    """Change the partner's stored email or phone with an audit trail."""
+    """Change the partner's stored email or phone with an audit trail.
+
+    Guards against a prompt-injection account-takeover chain: a malicious
+    ticket body could tell the model to rewrite the customer's email and
+    then request a password reset — the reset link would land in the
+    attacker's inbox. To make that path fail-closed, every new value must
+    appear verbatim (case-insensitive) inside ticket.name or
+    ticket.description, and email destinations on the reputation
+    denylist are refused outright.
+    """
     if not ticket.partner_id:
         return {"ok": False, "error": "no_partner"}
+    ticket_text = f"{ticket.name or ''}\n{ticket.description or ''}".casefold()
     changes = {}
     if email:
         email = email.strip()
-        if email and email != (ticket.partner_id.email or ""):
+        if not email:
+            pass
+        elif email.casefold() not in ticket_text:
+            return {
+                "ok": False,
+                "error": "value_not_in_ticket_text",
+                "detail": "email must appear verbatim in the ticket subject or description",
+            }
+        elif "@" in email and email.rsplit("@", 1)[-1].casefold() in DENYLISTED_DOMAINS:
+            return {
+                "ok": False,
+                "error": "denylisted_email_domain",
+                "detail": email.rsplit("@", 1)[-1],
+            }
+        elif email != (ticket.partner_id.email or ""):
             changes["email"] = email
     if phone:
         phone = phone.strip()
-        if phone and phone != (ticket.partner_id.phone or ""):
+        if not phone:
+            pass
+        elif phone.casefold() not in ticket_text:
+            return {
+                "ok": False,
+                "error": "value_not_in_ticket_text",
+                "detail": "phone must appear verbatim in the ticket subject or description",
+            }
+        elif phone != (ticket.partner_id.phone or ""):
             changes["phone"] = phone
     if not changes:
         return {"ok": True, "data": {"updated": False, "reason": "no_changes"}}
