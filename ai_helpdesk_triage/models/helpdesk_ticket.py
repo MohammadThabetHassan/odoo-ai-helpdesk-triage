@@ -56,6 +56,16 @@ RESOLUTION_STATUS_SELECTION = [
     ("escalated", "Escalated"),
     ("failed", "Failed"),
 ]
+SENTIMENT_SELECTION = [
+    ("neutral", "Neutral"),
+    ("frustrated", "Frustrated"),
+    ("angry", "Angry"),
+]
+URGENCY_SELECTION = [
+    ("low", "Low"),
+    ("normal", "Normal"),
+    ("vip", "VIP"),
+]
 CORRECTION_FIELDS = {"category", "priority", "team_id"}
 EMAIL_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
 PHONE_RE = re.compile(r"(?<!\w)(?:\+?\d[\d\s().-]{7,}\d)(?!\w)")
@@ -118,6 +128,27 @@ class HelpdeskTicket(models.Model):
     )
     ai_review_note = fields.Text(readonly=True, string="AI Review Note")
     ai_error = fields.Text(readonly=True, string="AI Error")
+
+    ai_sentiment = fields.Selection(
+        SENTIMENT_SELECTION,
+        readonly=True,
+        default="neutral",
+        string="Customer Sentiment",
+        help="AI-inferred emotional tone of the ticket. Feeds routing and reflection gates.",
+    )
+    ai_urgency = fields.Selection(
+        URGENCY_SELECTION,
+        readonly=True,
+        default="normal",
+        string="Ticket Urgency",
+        help="AI-inferred urgency of the ticket. VIP always uses the most capable model.",
+    )
+    ai_ambiguous = fields.Boolean(
+        readonly=True,
+        default=False,
+        string="Ambiguous Request",
+        help="AI flag when the ticket does not clearly describe one action to take.",
+    )
 
     ai_model = fields.Char(readonly=True, string="AI Model")
     ai_input_tokens = fields.Integer(readonly=True)
@@ -481,6 +512,9 @@ class HelpdeskTicket(models.Model):
                 "ai_resolution_reason": False,
                 "ai_resolution_start_at": False,
                 "ai_resolution_end_at": False,
+                "ai_sentiment": "neutral",
+                "ai_urgency": "normal",
+                "ai_ambiguous": False,
             },
         )
         return True
@@ -814,7 +848,11 @@ Confidence must be a number from 0.0 to 1.0.
         """Return the Anthropic tool schema for validated structured output."""
         return {
             "name": "triage_ticket",
-            "description": "Classify, prioritize, route, and draft a support reply.",
+            "description": (
+                "Classify, prioritize, route, draft a support reply, and score "
+                "the customer's sentiment/urgency so downstream automation can "
+                "pick the right model and safety gates."
+            ),
             "input_schema": {
                 "type": "object",
                 "additionalProperties": False,
@@ -831,6 +869,31 @@ Confidence must be a number from 0.0 to 1.0.
                     "reasoning": {"type": "string", "minLength": 1},
                     "suggested_reply": {"type": "string", "minLength": 1},
                     "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                    "sentiment": {
+                        "type": "string",
+                        "enum": [key for key, _label in SENTIMENT_SELECTION],
+                        "description": (
+                            "Customer's emotional tone in the ticket. "
+                            "'angry' or 'frustrated' should bias toward more "
+                            "careful resolution and human escalation."
+                        ),
+                    },
+                    "urgency": {
+                        "type": "string",
+                        "enum": [key for key, _label in URGENCY_SELECTION],
+                        "description": (
+                            "How business-urgent the ask is. 'vip' forces "
+                            "the most capable model on every resolution turn."
+                        ),
+                    },
+                    "is_ambiguous": {
+                        "type": "boolean",
+                        "description": (
+                            "True when the ticket does not clearly describe "
+                            "a single action to take (multiple asks, unclear "
+                            "intent, missing information)."
+                        ),
+                    },
                 },
                 "required": [
                     "category",
@@ -839,6 +902,9 @@ Confidence must be a number from 0.0 to 1.0.
                     "reasoning",
                     "suggested_reply",
                     "confidence",
+                    "sentiment",
+                    "urgency",
+                    "is_ambiguous",
                 ],
             },
         }
@@ -915,6 +981,21 @@ Confidence must be a number from 0.0 to 1.0.
             errors.append(_("confidence must be between 0 and 1"))
             confidence = 0.0
 
+        sentiment = payload.get("sentiment") or "neutral"
+        if sentiment not in dict(SENTIMENT_SELECTION):
+            errors.append(_("sentiment must be neutral, frustrated, or angry"))
+            sentiment = "neutral"
+
+        urgency = payload.get("urgency") or "normal"
+        if urgency not in dict(URGENCY_SELECTION):
+            errors.append(_("urgency must be low, normal, or vip"))
+            urgency = "normal"
+
+        is_ambiguous = payload.get("is_ambiguous")
+        if isinstance(is_ambiguous, str):
+            is_ambiguous = is_ambiguous.strip().lower() in {"1", "true", "yes"}
+        is_ambiguous = bool(is_ambiguous)
+
         return (
             {
                 "category": category,
@@ -924,6 +1005,9 @@ Confidence must be a number from 0.0 to 1.0.
                 "reasoning": reasoning,
                 "suggested_reply": suggested_reply,
                 "confidence": confidence,
+                "sentiment": sentiment,
+                "urgency": urgency,
+                "is_ambiguous": is_ambiguous,
                 "validation_errors": errors,
             },
             errors,
@@ -945,6 +1029,9 @@ Confidence must be a number from 0.0 to 1.0.
                 "will route it to the right specialist.",
             ),
             "confidence": 0.0,
+            "sentiment": "neutral",
+            "urgency": "normal",
+            "is_ambiguous": True,
             "validation_errors": errors,
         }
 
@@ -985,6 +1072,9 @@ Confidence must be a number from 0.0 to 1.0.
             "ai_confidence": result["confidence"],
             "ai_review_status": result["review_status"],
             "ai_review_note": result["review_note"],
+            "ai_sentiment": result.get("sentiment") or "neutral",
+            "ai_urgency": result.get("urgency") or "normal",
+            "ai_ambiguous": bool(result.get("is_ambiguous")),
             "ai_error": False,
             "ai_triage_attempted": True,
             "ai_triage_in_progress": False,

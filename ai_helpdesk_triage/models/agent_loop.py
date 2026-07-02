@@ -77,25 +77,38 @@ def run(env, ticket, autonomy_level, max_actions, cost_cap):
             reason="autonomy_off",
         )
 
-    schemas = get_tool_schemas(env, autonomy_level)
+    full_schemas = get_tool_schemas(env, autonomy_level)
+    read_only_schemas = _filter_schemas_by_class(tools, {"read", "escalation"})
+    is_ambiguous = bool(getattr(ticket, "ai_ambiguous", False))
+    urgency = getattr(ticket, "ai_urgency", "normal")
     messages = [
         {"role": "user", "content": _initial_user_message(ticket, tools)},
     ]
 
     actions = []
+    action_tool_classes = []
     total_cost = 0.0
-    total_tokens = {"input": 0, "output": 0}
+    total_tokens = {
+        "input": 0,
+        "output": 0,
+        "cache_write": 0,
+        "cache_read": 0,
+    }
     final_text = ""
     seen_calls = set()
+    sticky_sonnet = False
 
     for iteration in range(1, max_actions + 1):
-        payload = {
-            "model": anthropic_client.DEFAULT_MODEL,
-            "max_tokens": anthropic_client.DEFAULT_MAX_TOKENS,
-            "system": SYSTEM_PROMPT,
-            "tools": schemas,
-            "messages": messages,
-        }
+        model_id, iter_schemas = _choose_iteration_model(
+            iteration=iteration,
+            action_tool_classes=action_tool_classes,
+            is_ambiguous=is_ambiguous,
+            urgency=urgency,
+            sticky_sonnet=sticky_sonnet,
+            full_schemas=full_schemas,
+            read_only_schemas=read_only_schemas,
+        )
+        payload = _build_payload(model_id, iter_schemas, messages)
         started = time.monotonic()
         response = anthropic_client.post_message(env, payload)
         elapsed_ms = int((time.monotonic() - started) * 1000)
@@ -103,14 +116,20 @@ def run(env, ticket, autonomy_level, max_actions, cost_cap):
         usage = response.get("usage") or {}
         input_tokens = int(usage.get("input_tokens") or 0)
         output_tokens = int(usage.get("output_tokens") or 0)
+        cache_write_tokens = int(usage.get("cache_creation_input_tokens") or 0)
+        cache_read_tokens = int(usage.get("cache_read_input_tokens") or 0)
         round_cost = anthropic_client.estimate_cost(
             input_tokens,
             output_tokens,
-            model_id=payload.get("model") or anthropic_client.DEFAULT_MODEL,
+            model_id=model_id,
+            cache_creation_tokens=cache_write_tokens,
+            cache_read_tokens=cache_read_tokens,
         )
         total_cost += round_cost
         total_tokens["input"] += input_tokens
         total_tokens["output"] += output_tokens
+        total_tokens["cache_write"] += cache_write_tokens
+        total_tokens["cache_read"] += cache_read_tokens
 
         if cost_cap > 0 and total_cost > cost_cap:
             return AgentLoopResult(
@@ -132,10 +151,23 @@ def run(env, ticket, autonomy_level, max_actions, cost_cap):
         if not tool_uses:
             # Assistant ended turn without tool call — treat as resolution
             # if we already ran some actions, else as escalation.
-            status = "resolved" if actions else "escalated"
-            reason = None if actions else "no_tool_use"
+            candidate_status = "resolved" if actions else "escalated"
+            candidate_reason = None if actions else "no_tool_use"
             messages.append(
                 {"role": "assistant", "content": content_blocks},
+            )
+            status, reason, total_cost, total_tokens = _finalize_with_reflection(
+                env=env,
+                ticket=ticket,
+                autonomy_level=autonomy_level,
+                action_tool_classes=action_tool_classes,
+                actions=actions,
+                total_cost=total_cost,
+                total_tokens=total_tokens,
+                cost_cap=cost_cap,
+                messages=messages,
+                candidate_status=candidate_status,
+                candidate_reason=candidate_reason,
             )
             return AgentLoopResult(
                 status=status,
@@ -187,6 +219,12 @@ def run(env, ticket, autonomy_level, max_actions, cost_cap):
                         "escalated_by_ai",
                     )
 
+            # If Haiku emitted a malformed tool_use input, stick to Sonnet for
+            # the rest of the loop — one-shot fallback so the model quality
+            # regression can't cascade across iterations.
+            if model_id != anthropic_client.DEFAULT_MODEL and result.get("error") == "bad_arguments":
+                sticky_sonnet = True
+
             action = _record_action(
                 env,
                 ticket,
@@ -200,6 +238,8 @@ def run(env, ticket, autonomy_level, max_actions, cost_cap):
                 elapsed_ms,
             )
             actions.append(action)
+            if tool:
+                action_tool_classes.append(tool.get("class"))
             tool_results.append(_tool_result_message(use_id, result))
 
         messages.append({"role": "user", "content": tool_results})
@@ -215,13 +255,28 @@ def run(env, ticket, autonomy_level, max_actions, cost_cap):
             )
 
         if stop_reason == "end_turn":
+            candidate_status = "resolved" if actions else "escalated"
+            candidate_reason = None if actions else "no_tool_use"
+            status, reason, total_cost, total_tokens = _finalize_with_reflection(
+                env=env,
+                ticket=ticket,
+                autonomy_level=autonomy_level,
+                action_tool_classes=action_tool_classes,
+                actions=actions,
+                total_cost=total_cost,
+                total_tokens=total_tokens,
+                cost_cap=cost_cap,
+                messages=messages,
+                candidate_status=candidate_status,
+                candidate_reason=candidate_reason,
+            )
             return AgentLoopResult(
-                status="resolved" if actions else "escalated",
+                status=status,
                 reasoning=final_text,
                 actions=actions,
                 cost=total_cost,
                 tokens=total_tokens,
-                reason=None if actions else "no_tool_use",
+                reason=reason,
             )
 
     return AgentLoopResult(
@@ -232,6 +287,263 @@ def run(env, ticket, autonomy_level, max_actions, cost_cap):
         tokens=total_tokens,
         reason="max_actions",
     )
+
+
+REFLECT_TOOL_SCHEMA = {
+    "name": "reflect",
+    "description": (
+        "Report whether the resolution actually solved the customer's ask. "
+        "Be conservative: if you cannot confirm the write action satisfied "
+        "the customer's original intent, recommend escalate."
+    ),
+    "input_schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "did_solve": {
+                "type": "string",
+                "enum": ["yes", "no", "uncertain"],
+            },
+            "reason": {"type": "string", "minLength": 1, "maxLength": 500},
+            "recommend": {"type": "string", "enum": ["resolve", "escalate"]},
+        },
+        "required": ["did_solve", "reason", "recommend"],
+    },
+}
+
+REFLECT_SYSTEM_PROMPT = (
+    "You are a resolution auditor for a support agent's tool calls. "
+    "Given the conversation, decide whether the last action truly solved "
+    "the customer's ORIGINAL ask, or whether a human should take over. "
+    "When in doubt, recommend escalate — a wrongly-resolved ticket is worse "
+    "than a wrongly-escalated one. Call the reflect tool exactly once."
+)
+
+
+def _finalize_with_reflection(
+    env,
+    ticket,
+    autonomy_level,
+    action_tool_classes,
+    actions,
+    total_cost,
+    total_tokens,
+    cost_cap,
+    messages,
+    candidate_status,
+    candidate_reason,
+):
+    """Optionally run a reflection call and return the final outcome tuple.
+
+    Returns (status, reason, total_cost, total_tokens). Only rewrites the
+    candidate outcome when the reflection call recommends escalation.
+    Reflection cost/tokens are folded into the totals; on any failure the
+    reflection is skipped so it never blocks a legitimate resolution.
+    """
+    if candidate_status != "resolved":
+        return candidate_status, candidate_reason, total_cost, total_tokens
+    urgency = getattr(ticket, "ai_urgency", "normal")
+    if not _should_reflect(
+        action_tool_classes=action_tool_classes,
+        autonomy_level=autonomy_level,
+        urgency=urgency,
+        actions_count=len(actions),
+        total_cost=total_cost,
+        cost_cap=cost_cap,
+    ):
+        return candidate_status, candidate_reason, total_cost, total_tokens
+    reflection = _run_reflection(env, ticket, messages)
+    if reflection is None:
+        return candidate_status, candidate_reason, total_cost, total_tokens
+    total_cost += reflection["cost"]
+    for key in ("input", "output", "cache_write", "cache_read"):
+        total_tokens[key] += reflection["tokens"].get(key, 0)
+    _record_action(
+        env,
+        ticket,
+        "reflection_check",
+        {"asked": "did the last action solve the customer's ask"},
+        reflection["result"],
+        reflection["reason"],
+        reflection["tokens"].get("input", 0),
+        reflection["tokens"].get("output", 0),
+        reflection["cost"],
+        reflection["elapsed_ms"],
+    )
+    if reflection.get("recommend") == "escalate":
+        return "escalated", "reflection_uncertain", total_cost, total_tokens
+    return candidate_status, candidate_reason, total_cost, total_tokens
+
+
+def _should_reflect(
+    action_tool_classes,
+    autonomy_level,
+    urgency,
+    actions_count,
+    total_cost,
+    cost_cap,
+):
+    """Return True when the resolution warrants a self-critique before shipping.
+
+    Gates (any one triggers reflection):
+      - VIP urgency — always double-check.
+      - Three or more actions — complex path, more room to be wrong.
+      - Spent more than half the per-ticket cost cap — a signal of
+        uncertainty during the loop.
+      - Full autonomy AND the last tool executed was a write — a mistake
+        here has real-world side effects for the customer.
+    """
+    if urgency == "vip":
+        return True
+    if actions_count >= 3:
+        return True
+    if cost_cap > 0 and total_cost > 0.5 * cost_cap:
+        return True
+    if autonomy_level == "full" and action_tool_classes and action_tool_classes[-1] == "write":
+        return True
+    return False
+
+
+def _run_reflection(env, ticket, messages):
+    """Execute a single Haiku reflection call and return a normalized dict.
+
+    Returns None on any failure — the caller falls back to the original
+    outcome so a broken reflection can never block a good resolution.
+    """
+    reflection_messages = messages + [
+        {
+            "role": "user",
+            "content": (
+                "Review the conversation above. Did the tool actions actually "
+                "solve what the customer originally asked for? Call the "
+                "reflect tool exactly once."
+            ),
+        },
+    ]
+    payload = {
+        "model": anthropic_client.FAST_MODEL,
+        "max_tokens": 400,
+        "system": REFLECT_SYSTEM_PROMPT,
+        "tools": [REFLECT_TOOL_SCHEMA],
+        "tool_choice": {"type": "tool", "name": "reflect"},
+        "messages": reflection_messages,
+    }
+    started = time.monotonic()
+    try:
+        response = anthropic_client.post_message(env, payload)
+    except Exception as exc:  # noqa: BLE001 - reflection must never break resolve
+        _logger.warning("Reflection API call failed for ticket %s: %s", ticket.id, exc)
+        return None
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    usage = response.get("usage") or {}
+    input_tokens = int(usage.get("input_tokens") or 0)
+    output_tokens = int(usage.get("output_tokens") or 0)
+    cache_write = int(usage.get("cache_creation_input_tokens") or 0)
+    cache_read = int(usage.get("cache_read_input_tokens") or 0)
+    cost = anthropic_client.estimate_cost(
+        input_tokens,
+        output_tokens,
+        model_id=anthropic_client.FAST_MODEL,
+        cache_creation_tokens=cache_write,
+        cache_read_tokens=cache_read,
+    )
+    content_blocks = response.get("content") or []
+    tool_use = next(
+        (block for block in content_blocks if block.get("type") == "tool_use" and block.get("name") == "reflect"),
+        None,
+    )
+    tool_input = tool_use.get("input") if tool_use else None
+    if not isinstance(tool_input, dict):
+        _logger.warning(
+            "Reflection returned no reflect tool_use for ticket %s",
+            ticket.id,
+        )
+        return None
+    did_solve = tool_input.get("did_solve") or "uncertain"
+    recommend = tool_input.get("recommend") or "resolve"
+    reason = (tool_input.get("reason") or "").strip() or "no reason provided"
+    return {
+        "did_solve": did_solve,
+        "recommend": recommend,
+        "reason": reason,
+        "result": {"ok": True, "data": tool_input},
+        "cost": cost,
+        "elapsed_ms": elapsed_ms,
+        "tokens": {
+            "input": input_tokens,
+            "output": output_tokens,
+            "cache_write": cache_write,
+            "cache_read": cache_read,
+        },
+    }
+
+
+def _choose_iteration_model(
+    iteration,
+    action_tool_classes,
+    is_ambiguous,
+    urgency,
+    sticky_sonnet,
+    full_schemas,
+    read_only_schemas,
+):
+    """Return (model_id, tool_schemas) for this iteration.
+
+    Sonnet handles the first turn (planning) and any turn that follows a
+    write, an ambiguous ticket, a VIP ticket, or a prior Haiku failure.
+    Otherwise, once we've already run at least one read-tool turn and no
+    writes have happened yet, Haiku takes the next continuation with only
+    read/escalation schemas — making it structurally impossible for Haiku
+    to invoke a write it might mis-parameterize.
+    """
+    if iteration == 1 or sticky_sonnet or is_ambiguous or urgency == "vip" or not action_tool_classes:
+        return anthropic_client.DEFAULT_MODEL, full_schemas
+    if any(tool_class == "write" for tool_class in action_tool_classes):
+        return anthropic_client.DEFAULT_MODEL, full_schemas
+    if not read_only_schemas:
+        return anthropic_client.DEFAULT_MODEL, full_schemas
+    return anthropic_client.FAST_MODEL, read_only_schemas
+
+
+def _filter_schemas_by_class(tools, allowed_classes):
+    """Return the schemas for tools whose class is in allowed_classes."""
+    return [tool["schema"] for tool in tools.values() if tool.get("class") in allowed_classes]
+
+
+def _build_payload(model_id, schemas, messages):
+    """Assemble a Messages payload with prompt-cache breakpoints.
+
+    System prompt and the tool schemas array are the two stable-per-loop
+    prefixes; marking each with an ephemeral cache_control tells Anthropic
+    to cache the tokenized prefix up to and including that block. Second
+    and later iterations in the same conversation then read that prefix
+    from the cache at 10% of the input rate.
+
+    Bedrock on non-caching regions/models silently ignores cache_control
+    and returns no cache_creation/read fields — the loop treats those as
+    zero and the extra cost falls away.
+    """
+    system_blocks = [
+        {
+            "type": "text",
+            "text": SYSTEM_PROMPT,
+            "cache_control": {"type": "ephemeral"},
+        },
+    ]
+    # Shallow-copy schemas so we don't mutate the registry singleton.
+    tools_out = [dict(schema) for schema in schemas]
+    if tools_out:
+        tools_out[-1] = {
+            **tools_out[-1],
+            "cache_control": {"type": "ephemeral"},
+        }
+    return {
+        "model": model_id,
+        "max_tokens": anthropic_client.DEFAULT_MAX_TOKENS,
+        "system": system_blocks,
+        "tools": tools_out,
+        "messages": messages,
+    }
 
 
 def _execute_tool(env, ticket, tool, tool_input):

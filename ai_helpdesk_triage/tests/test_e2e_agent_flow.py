@@ -101,6 +101,9 @@ class TestAgentEndToEnd(TransactionCase):
                                 "We are resending the invoice now — please check " "your inbox in a few minutes."
                             ),
                             "confidence": confidence,
+                            "sentiment": "neutral",
+                            "urgency": "normal",
+                            "is_ambiguous": False,
                         },
                     },
                 ],
@@ -115,6 +118,26 @@ class TestAgentEndToEnd(TransactionCase):
             "name": tool_name,
             "input": tool_input,
         }
+
+    def _reflection_response(self, recommend="resolve", did_solve="yes", reason="Confirmed via tool result."):
+        """Mock a Haiku reflection tool-use response."""
+        return FakeResponse(
+            {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "reflect_1",
+                        "name": "reflect",
+                        "input": {
+                            "did_solve": did_solve,
+                            "reason": reason,
+                            "recommend": recommend,
+                        },
+                    },
+                ],
+                "usage": {"input_tokens": 50, "output_tokens": 20},
+            },
+        )
 
     def _loop_response(
         self,
@@ -207,6 +230,9 @@ class TestAgentEndToEnd(TransactionCase):
                 input_tokens=80,
                 output_tokens=30,
             ),
+            # Reflection gate fires after a full-autonomy write; supply a
+            # green-light response so the loop keeps the resolved verdict.
+            self._reflection_response(),
         ]
 
         with patch(
@@ -215,22 +241,90 @@ class TestAgentEndToEnd(TransactionCase):
         ) as mocked:
             ticket.action_ai_resolve()
 
-        self.assertEqual(mocked.call_count, 3, "loop should call the API 3 times")
+        self.assertEqual(
+            mocked.call_count,
+            4,
+            "loop should call the API 3 times plus 1 reflection check",
+        )
         self.assertEqual(ticket.ai_resolution_status, "resolved")
         self.assertFalse(ticket.ai_resolution_in_progress)
         self.assertEqual(ticket.ai_resolution_attempts, 1)
         self.assertGreater(ticket.ai_resolution_cost, 0)
 
         actions = ticket.action_ids.sorted("sequence")
-        self.assertEqual(len(actions), 2)
+        # 2 tool calls plus 1 reflection_check audit row.
+        self.assertEqual(len(actions), 3)
         self.assertEqual(actions[0].tool_name, "lookup_customer")
         self.assertEqual(actions[1].tool_name, "post_customer_reply")
-        for action in actions:
+        self.assertEqual(actions[2].tool_name, "reflection_check")
+        for action in actions[:2]:
             self.assertTrue(action.succeeded)
             payload = json.loads(action.tool_input)
             self.assertIsInstance(payload, dict)
             result = json.loads(action.tool_result)
             self.assertTrue(result.get("ok"))
+
+    # ------------------------------------------------------------------
+    # 2b. Reflection gate flips a shaky resolution to escalated.
+    # ------------------------------------------------------------------
+    def test_2b_reflection_rewrites_resolved_to_escalated(self):
+        """When reflection says 'escalate', the loop returns escalated with reason=reflection_uncertain."""
+        ticket = self._new_ticket()
+        with patch(
+            "odoo.addons.ai_helpdesk_triage.models.helpdesk_ticket.requests.post",
+            return_value=self._triage_response(),
+        ):
+            ticket.action_ai_triage()
+
+        loop_responses = [
+            self._loop_response(
+                [
+                    self._tool_use(
+                        "lookup_customer",
+                        {"email": "jane.demo@example.com"},
+                        "use_1",
+                    ),
+                ],
+                assistant_text="Looking up the customer.",
+            ),
+            self._loop_response(
+                [
+                    self._tool_use(
+                        "post_customer_reply",
+                        {"body": "Invoice resent — check your inbox."},
+                        "use_2",
+                    ),
+                ],
+                assistant_text="Posting the confirmation.",
+            ),
+            self._loop_response(
+                [],
+                stop_reason="end_turn",
+                assistant_text="Done.",
+                input_tokens=80,
+                output_tokens=30,
+            ),
+            # Reflection returns 'escalate' — resolution was shaky.
+            self._reflection_response(
+                recommend="escalate",
+                did_solve="uncertain",
+                reason="Could not confirm the invoice PDF actually reached the customer.",
+            ),
+        ]
+        with patch(
+            "odoo.addons.ai_helpdesk_triage.models.anthropic_client.requests.post",
+            side_effect=loop_responses,
+        ):
+            ticket.action_ai_resolve()
+
+        self.assertEqual(ticket.ai_resolution_status, "escalated")
+        self.assertEqual(ticket.ai_resolution_reason, "reflection_uncertain")
+        # The reflection call is recorded as an audit row so the timeline
+        # shows why the ticket was escalated after apparent success.
+        self.assertIn(
+            "reflection_check",
+            ticket.action_ids.mapped("tool_name"),
+        )
 
     # ------------------------------------------------------------------
     # 3. Explicit escalation via escalate_to_human.

@@ -36,6 +36,9 @@ DEFAULT_MAX_TOKENS = 1500
 # provider split. The value is used as the placeholder ``model`` on the
 # outbound payload; the Bedrock branch strips it before sending.
 DEFAULT_MODEL = DEFAULT_ANTHROPIC_MODEL
+# Cheaper, faster model used for read-only agent turns and the reflection
+# check. Same tool schema surface, ~4x cheaper input, ~4x cheaper output.
+FAST_MODEL = "claude-haiku-4-5-20251001"
 REQUEST_TIMEOUT = (5, 60)
 MAX_RETRIES = 3
 BACKOFF_SECONDS = 1.5
@@ -108,16 +111,28 @@ def get_bedrock_config(env):
     return region or DEFAULT_BEDROCK_REGION, model_id or DEFAULT_BEDROCK_MODEL
 
 
-def estimate_cost(input_tokens, output_tokens, model_id=None):
+def estimate_cost(
+    input_tokens,
+    output_tokens,
+    model_id=None,
+    cache_creation_tokens=0,
+    cache_read_tokens=0,
+):
     """Estimate USD cost from token counts for a specific model.
 
     ``model_id`` is optional for backwards compatibility with older callers;
-    when omitted, the Sonnet baseline is used.
+    when omitted, the Sonnet baseline is used. Cache tokens are priced with
+    Anthropic's ephemeral cache tariff: writes at 1.25x input rate, reads at
+    0.10x input rate. Providers that don't return cache fields (e.g. Bedrock
+    on unsupported regions) should pass 0 for both — the extra cost falls
+    away and the total matches the uncached path.
     """
     input_rate, output_rate = _rates_for(model_id)
     input_cost = (input_tokens / 1_000_000) * input_rate
     output_cost = (output_tokens / 1_000_000) * output_rate
-    return round(input_cost + output_cost, 6)
+    cache_write_cost = (cache_creation_tokens / 1_000_000) * input_rate * 1.25
+    cache_read_cost = (cache_read_tokens / 1_000_000) * input_rate * 0.10
+    return round(input_cost + output_cost + cache_write_cost + cache_read_cost, 6)
 
 
 def post_message(env, payload):

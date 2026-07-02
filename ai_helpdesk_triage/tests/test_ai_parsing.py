@@ -55,6 +55,9 @@ class TestAiParsing(TransactionCase):
             "reasoning": "The customer reports duplicate billing.",
             "suggested_reply": "We are checking the duplicate charge and will update you shortly.",
             "confidence": confidence,
+            "sentiment": "neutral",
+            "urgency": "normal",
+            "is_ambiguous": False,
         }
 
     def test_tool_use_payload_is_normalized(self):
