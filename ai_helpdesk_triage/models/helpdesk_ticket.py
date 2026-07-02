@@ -10,7 +10,6 @@ from datetime import datetime
 from datetime import time as datetime_time
 
 from markupsafe import Markup, escape
-
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
@@ -248,7 +247,10 @@ class HelpdeskTicket(models.Model):
                 ticket._ensure_category_allowed_for_full_autonomy()
 
             ticket.with_context(ai_skip_correction_log=True).write(
-                {"ai_resolution_in_progress": True, "ai_resolution_status": "in_progress"},
+                {
+                    "ai_resolution_in_progress": True,
+                    "ai_resolution_status": "in_progress",
+                },
             )
 
             max_actions = int(
@@ -317,19 +319,13 @@ class HelpdeskTicket(models.Model):
             raise UserError(_("Resolution is already running for this ticket."))
         if self.ai_resolution_status not in ("not_attempted", "failed"):
             raise UserError(
-                _("This ticket already has a resolution attempt (%s).")
-                % self.ai_resolution_status,
+                _("This ticket already has a resolution attempt (%s).") % self.ai_resolution_status,
             )
 
     def _ensure_category_allowed_for_full_autonomy(self):
         """Guard full-autonomy writes to configured categories only."""
         self.ensure_one()
-        raw = (
-            self.env["ir.config_parameter"]
-            .sudo()
-            .get_param("ai_helpdesk_triage.autonomy_categories", "")
-            or ""
-        )
+        raw = self.env["ir.config_parameter"].sudo().get_param("ai_helpdesk_triage.autonomy_categories", "") or ""
         allowed = {item.strip() for item in raw.split(",") if item.strip()}
         if not allowed:
             raise UserError(
@@ -340,17 +336,12 @@ class HelpdeskTicket(models.Model):
             )
         if self.category not in allowed:
             raise UserError(
-                _("Category %s is not approved for autonomous resolution.")
-                % (self.category or "unknown"),
+                _("Category %s is not approved for autonomous resolution.") % (self.category or "unknown"),
             )
 
     def _get_autonomy_level(self):
         """Read autonomy level from ir.config_parameter."""
-        value = (
-            self.env["ir.config_parameter"]
-            .sudo()
-            .get_param("ai_helpdesk_triage.autonomy_level", "read_only")
-        )
+        value = self.env["ir.config_parameter"].sudo().get_param("ai_helpdesk_triage.autonomy_level", "read_only")
         return value if value in ("off", "read_only", "full") else "read_only"
 
     def _apply_agent_loop_result(self, result):
@@ -370,9 +361,14 @@ class HelpdeskTicket(models.Model):
     def _post_ai_resolution_message(self, result):
         """Post a chatter summary of the agent loop result."""
         self.ensure_one()
-        title = _("AI resolution complete") if result.status == "resolved" else _(
-            "AI resolution ended: %s",
-        ) % result.status
+        title = (
+            _("AI resolution complete")
+            if result.status == "resolved"
+            else _(
+                "AI resolution ended: %s",
+            )
+            % result.status
+        )
         body = Markup(
             "<p><strong>%s</strong></p>"
             "<ul>"
@@ -578,11 +574,7 @@ class HelpdeskTicket(models.Model):
             default=True,
         )
         subject = self._redact_pii(self.name) if redaction_enabled else self.name
-        description = (
-            self._redact_pii(self.description)
-            if redaction_enabled
-            else self.description
-        )
+        description = self._redact_pii(self.description) if redaction_enabled else self.description
         customer = self.partner_id.display_name or _("Unknown")
         customer = self._redact_pii(customer) if redaction_enabled else customer
         redaction_note = _(
@@ -590,7 +582,8 @@ class HelpdeskTicket(models.Model):
             "or [REDACTED_PHONE] before this prompt leaves Odoo.",
         )
         team_lines = "\n".join(f"- {name}" for name in team_names)
-        prompt = f"""You are a senior helpdesk triage agent. Analyze the ticket and call the triage_ticket tool exactly once.
+        prompt = f"""You are a senior helpdesk triage agent.
+Analyze the ticket and call the triage_ticket tool exactly once.
 
 Human-in-the-loop rule:
 - You only perform first-pass classification and routing.
@@ -614,9 +607,7 @@ Confidence must be a number from 0.0 to 1.0.
 {redaction_note if redaction_enabled else "No PII redaction was applied by Odoo before this call."}
 """
         if corrective_errors:
-            prompt += (
-                "\nThe previous tool input failed validation. Correct these issues:\n"
-            )
+            prompt += "\nThe previous tool input failed validation. Correct these issues:\n"
             prompt += "\n".join(f"- {error}" for error in corrective_errors)
             prompt += "\nPrevious invalid payload:\n"
             prompt += json.dumps(previous_payload, ensure_ascii=True, indent=2)
@@ -741,19 +732,23 @@ Confidence must be a number from 0.0 to 1.0.
         body = dict(payload)
         if provider == "bedrock":
             icp = self.env["ir.config_parameter"].sudo()
-            region = icp.get_param(
-                "ai_helpdesk_triage.bedrock_region", "us-east-1",
-            ) or "us-east-1"
-            model_id = icp.get_param(
-                "ai_helpdesk_triage.bedrock_model_id",
-                "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-            ) or "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+            region = (
+                icp.get_param(
+                    "ai_helpdesk_triage.bedrock_region",
+                    "us-east-1",
+                )
+                or "us-east-1"
+            )
+            model_id = (
+                icp.get_param(
+                    "ai_helpdesk_triage.bedrock_model_id",
+                    "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                )
+                or "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+            )
             body.pop("model", None)
             body.setdefault("anthropic_version", "bedrock-2023-05-31")
-            url = (
-                f"https://bedrock-runtime.{region}.amazonaws.com/"
-                f"model/{model_id}/invoke"
-            )
+            url = f"https://bedrock-runtime.{region}.amazonaws.com/" f"model/{model_id}/invoke"
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
@@ -774,11 +769,7 @@ Confidence must be a number from 0.0 to 1.0.
 
     def _get_provider(self):
         """Read the active provider from ir.config_parameter."""
-        value = (
-            self.env["ir.config_parameter"]
-            .sudo()
-            .get_param("ai_helpdesk_triage.provider", "anthropic")
-        )
+        value = self.env["ir.config_parameter"].sudo().get_param("ai_helpdesk_triage.provider", "anthropic")
         return value if value in ("anthropic", "bedrock") else "anthropic"
 
     def _sleep_before_retry(self, attempt):
@@ -831,11 +822,7 @@ Confidence must be a number from 0.0 to 1.0.
                     return tool_input
                 raise UserError(_("AI tool input was not a JSON object."))
 
-        text = "".join(
-            block.get("text", "")
-            for block in content_blocks
-            if block.get("type") == "text"
-        ).strip()
+        text = "".join(block.get("text", "") for block in content_blocks if block.get("type") == "text").strip()
         if not text:
             raise UserError(_("AI service returned no tool input."))
         text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE).strip()
@@ -918,8 +905,7 @@ Confidence must be a number from 0.0 to 1.0.
             "team": self.env["ai.helpdesk.team"],
             "suggested_team": False,
             "reasoning": _(
-                "AI output failed validation after retry. Human triage is required. "
-                "Validation errors: %s",
+                "AI output failed validation after retry. Human triage is required. " "Validation errors: %s",
             )
             % "; ".join(str(error) for error in errors),
             "suggested_reply": _(
@@ -997,14 +983,8 @@ Confidence must be a number from 0.0 to 1.0.
         self.ensure_one()
         category_label = self._selection_label("category", result["category"])
         priority_label = self._selection_label("priority", result["priority"])
-        team_name = (
-            result["team"].display_name if result.get("team") else _("Not routed")
-        )
-        title = (
-            _("AI triage complete")
-            if result["should_transition"]
-            else _("AI triage needs human review")
-        )
+        team_name = result["team"].display_name if result.get("team") else _("Not routed")
+        title = _("AI triage complete") if result["should_transition"] else _("AI triage needs human review")
         body = Markup(
             "<p><strong>%s</strong></p>"
             "<ul>"
@@ -1157,10 +1137,8 @@ Confidence must be a number from 0.0 to 1.0.
     def _merge_usage(self, first, second):
         """Combine Anthropic usage from the initial and corrective attempts."""
         return {
-            "input_tokens": int(first.get("input_tokens") or 0)
-            + int(second.get("input_tokens") or 0),
-            "output_tokens": int(first.get("output_tokens") or 0)
-            + int(second.get("output_tokens") or 0),
+            "input_tokens": int(first.get("input_tokens") or 0) + int(second.get("input_tokens") or 0),
+            "output_tokens": int(first.get("output_tokens") or 0) + int(second.get("output_tokens") or 0),
         }
 
     @api.model

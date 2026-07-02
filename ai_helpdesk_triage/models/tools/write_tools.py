@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from markupsafe import Markup, escape
 
-
 RESEND_INVOICE_SCHEMA = {
     "name": "resend_invoice_pdf",
     "description": (
@@ -65,9 +64,16 @@ def resend_invoice_pdf(env, ticket, reference):
     """Regenerate and email an invoice PDF to its partner."""
     if not _module_installed(env, "account"):
         return {"ok": False, "error": "module_not_installed", "module": "account"}
-    invoice = env["account.move"].sudo().search(
-        [("name", "=", reference), ("move_type", "in", ("out_invoice", "out_refund"))],
-        limit=1,
+    invoice = (
+        env["account.move"]
+        .sudo()
+        .search(
+            [
+                ("name", "=", reference),
+                ("move_type", "in", ("out_invoice", "out_refund")),
+            ],
+            limit=1,
+        )
     )
     if not invoice:
         return {"ok": False, "error": "invoice_not_found", "reference": reference}
@@ -102,9 +108,13 @@ def send_password_reset(env, ticket, email):
         return {"ok": False, "error": "module_not_installed", "module": "auth_signup"}
     user = env["res.users"].sudo().search([("login", "=", email)], limit=1)
     if not user:
-        user = env["res.users"].sudo().search(
-            [("partner_id.email", "=ilike", email)],
-            limit=1,
+        user = (
+            env["res.users"]
+            .sudo()
+            .search(
+                [("partner_id.email", "=ilike", email)],
+                limit=1,
+            )
         )
     if not user:
         return {"ok": False, "error": "user_not_found", "email": email}
@@ -130,9 +140,7 @@ def post_customer_reply(env, ticket, body):
 
 def _module_installed(env, name):
     return bool(
-        env["ir.module.module"]
-        .sudo()
-        .search_count([("name", "=", name), ("state", "=", "installed")]),
+        env["ir.module.module"].sudo().search_count([("name", "=", name), ("state", "=", "installed")]),
     )
 
 

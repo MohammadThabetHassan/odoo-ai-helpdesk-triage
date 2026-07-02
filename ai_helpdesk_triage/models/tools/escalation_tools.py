@@ -6,7 +6,6 @@ from datetime import timedelta
 
 from odoo import fields
 
-
 CREATE_ACTIVITY_SCHEMA = {
     "name": "create_team_activity",
     "description": (
@@ -20,7 +19,12 @@ CREATE_ACTIVITY_SCHEMA = {
         "additionalProperties": False,
         "properties": {
             "team_name": {"type": "string", "minLength": 1},
-            "deadline_days": {"type": "integer", "minimum": 0, "maximum": 30, "default": 1},
+            "deadline_days": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 30,
+                "default": 1,
+            },
             "summary": {"type": "string", "minLength": 1, "maxLength": 200},
             "note": {"type": "string", "minLength": 1, "maxLength": 2000},
         },
@@ -48,9 +52,13 @@ ESCALATE_TO_HUMAN_SCHEMA = {
 
 def create_team_activity(env, ticket, team_name, summary, note, deadline_days=1):
     """Schedule a to-do activity on the ticket for a team member."""
-    team = env["ai.helpdesk.team"].sudo().search(
-        [("name", "=ilike", team_name), ("active", "=", True)],
-        limit=1,
+    team = (
+        env["ai.helpdesk.team"]
+        .sudo()
+        .search(
+            [("name", "=ilike", team_name), ("active", "=", True)],
+            limit=1,
+        )
     )
     if not team:
         return {"ok": False, "error": "team_not_found", "team_name": team_name}

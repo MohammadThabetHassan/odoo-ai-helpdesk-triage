@@ -43,11 +43,7 @@ OUTPUT_COST_PER_MILLION = 15.00
 
 def get_provider(env):
     """Return the active LLM provider (anthropic or bedrock)."""
-    value = (
-        env["ir.config_parameter"]
-        .sudo()
-        .get_param("ai_helpdesk_triage.provider", "anthropic")
-    )
+    value = env["ir.config_parameter"].sudo().get_param("ai_helpdesk_triage.provider", "anthropic")
     return value if value in ("anthropic", "bedrock") else "anthropic"
 
 
@@ -64,10 +60,12 @@ def get_bedrock_config(env):
     """Return the Bedrock region and model ID from settings."""
     icp = env["ir.config_parameter"].sudo()
     region = icp.get_param(
-        "ai_helpdesk_triage.bedrock_region", DEFAULT_BEDROCK_REGION,
+        "ai_helpdesk_triage.bedrock_region",
+        DEFAULT_BEDROCK_REGION,
     )
     model_id = icp.get_param(
-        "ai_helpdesk_triage.bedrock_model_id", DEFAULT_BEDROCK_MODEL,
+        "ai_helpdesk_triage.bedrock_model_id",
+        DEFAULT_BEDROCK_MODEL,
     )
     return region or DEFAULT_BEDROCK_REGION, model_id or DEFAULT_BEDROCK_MODEL
 
@@ -153,10 +151,7 @@ def _prepare_request(env, provider, api_key, payload):
         # Bedrock takes the model in the URL; the body carries anthropic_version.
         body.pop("model", None)
         body.setdefault("anthropic_version", BEDROCK_ANTHROPIC_VERSION)
-        url = (
-            f"https://bedrock-runtime.{region}.amazonaws.com/"
-            f"model/{model_id}/invoke"
-        )
+        url = f"https://bedrock-runtime.{region}.amazonaws.com/" f"model/{model_id}/invoke"
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",

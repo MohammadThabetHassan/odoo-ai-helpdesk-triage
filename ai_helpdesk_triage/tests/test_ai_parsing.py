@@ -150,12 +150,15 @@ class TestAiParsing(TransactionCase):
             FakeResponse({}, status_code=500, text="temporary"),
             FakeResponse(self._anthropic_payload(self._valid_input())),
         ]
-        with patch(
-            "odoo.addons.ai_helpdesk_triage.models.helpdesk_ticket.requests.post",
-            side_effect=responses,
-        ) as mocked_post, patch(
-            "odoo.addons.ai_helpdesk_triage.models.helpdesk_ticket.time.sleep",
-        ) as mocked_sleep:
+        with (
+            patch(
+                "odoo.addons.ai_helpdesk_triage.models.helpdesk_ticket.requests.post",
+                side_effect=responses,
+            ) as mocked_post,
+            patch(
+                "odoo.addons.ai_helpdesk_triage.models.helpdesk_ticket.time.sleep",
+            ) as mocked_sleep,
+        ):
             result = self.ticket._call_ai_triage_agent()
 
         self.assertEqual(mocked_post.call_count, 2)
@@ -177,9 +180,12 @@ class TestAiParsing(TransactionCase):
             },
         )
         try:
-            with patch(
-                "odoo.addons.ai_helpdesk_triage.models.helpdesk_ticket.requests.post",
-            ) as mocked_post, self.assertRaises(UserError):
+            with (
+                patch(
+                    "odoo.addons.ai_helpdesk_triage.models.helpdesk_ticket.requests.post",
+                ) as mocked_post,
+                self.assertRaises(UserError),
+            ):
                 self.ticket._call_ai_triage_agent()
             mocked_post.assert_not_called()
         finally:

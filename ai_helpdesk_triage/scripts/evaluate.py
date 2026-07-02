@@ -250,8 +250,7 @@ def print_metrics(metrics: dict) -> None:
     ]
     for category, values in metrics["per_category"].items():
         lines.append(
-            f"{category:<18} {values['precision']:>10.2%} "
-            f"{values['recall']:>10.2%} {values['support']:>8}",
+            f"{category:<18} {values['precision']:>10.2%} " f"{values['recall']:>10.2%} {values['support']:>8}",
         )
 
     lines.extend(
@@ -264,8 +263,7 @@ def print_metrics(metrics: dict) -> None:
     )
     for row in metrics["calibration"]:
         lines.append(
-            f"{row['bucket']:<10} {row['count']:>6} "
-            f"{row['avg_confidence']:>10.2%} {row['accuracy']:>10.2%}",
+            f"{row['bucket']:<10} {row['count']:>6} " f"{row['avg_confidence']:>10.2%} {row['accuracy']:>10.2%}",
         )
     sys.stdout.write("\n".join(lines) + "\n")
 

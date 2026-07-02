@@ -28,10 +28,7 @@ class ResConfigSettings(models.TransientModel):
     bedrock_api_key = fields.Char(
         string="Bedrock API Key",
         config_parameter="ai_helpdesk_triage.bedrock_api_key",
-        help=(
-            "AWS Bedrock long-lived API key (used as a Bearer token). "
-            "Only used when the provider is Bedrock."
-        ),
+        help=("AWS Bedrock long-lived API key (used as a Bearer token). " "Only used when the provider is Bedrock."),
     )
     bedrock_region = fields.Char(
         default="us-east-1",
@@ -44,8 +41,7 @@ class ResConfigSettings(models.TransientModel):
         config_parameter="ai_helpdesk_triage.bedrock_model_id",
         string="Bedrock Model ID",
         help=(
-            "Bedrock model identifier for a Claude family model, e.g. "
-            "us.anthropic.claude-sonnet-4-5-20250929-v1:0."
+            "Bedrock model identifier for a Claude family model, e.g. " "us.anthropic.claude-sonnet-4-5-20250929-v1:0."
         ),
     )
     ai_auto_route_confidence_threshold = fields.Float(
@@ -106,10 +102,7 @@ class ResConfigSettings(models.TransientModel):
         default=0.5,
         config_parameter="ai_helpdesk_triage.action_cost_cap_usd",
         string="Cost Cap per Ticket (USD)",
-        help=(
-            "Terminate the resolution loop when cumulative cost exceeds this "
-            "value. Zero disables the cap."
-        ),
+        help=("Terminate the resolution loop when cumulative cost exceeds this " "value. Zero disables the cap."),
     )
     ai_autonomy_categories = fields.Char(
         config_parameter="ai_helpdesk_triage.autonomy_categories",
@@ -123,10 +116,7 @@ class ResConfigSettings(models.TransientModel):
         default=False,
         config_parameter="ai_helpdesk_triage.auto_resolve_after_triage",
         string="Auto-run Resolution After Triage",
-        help=(
-            "When enabled, tickets that pass triage confidence gates trigger "
-            "the resolution loop automatically."
-        ),
+        help=("When enabled, tickets that pass triage confidence gates trigger " "the resolution loop automatically."),
     )
 
     def _compute_ai_spend(self):

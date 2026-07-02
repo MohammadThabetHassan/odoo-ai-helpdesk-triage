@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 LOOKUP_CUSTOMER_SCHEMA = {
     "name": "lookup_customer",
     "description": (
@@ -64,20 +63,28 @@ LIST_RECENT_ACTIVITY_SCHEMA = {
 
 def lookup_customer(env, ticket, email):
     """Find a customer partner by email, returning a compact profile."""
-    partner = env["res.partner"].sudo().search(
-        [("email", "=ilike", email)],
-        limit=1,
+    partner = (
+        env["res.partner"]
+        .sudo()
+        .search(
+            [("email", "=ilike", email)],
+            limit=1,
+        )
     )
     if not partner:
         return {
             "ok": True,
             "data": {"found": False, "email": email},
         }
-    open_tickets = env["ai.helpdesk.ticket"].sudo().search_count(
-        [
-            ("partner_id", "=", partner.id),
-            ("state", "not in", ("resolved", "closed")),
-        ],
+    open_tickets = (
+        env["ai.helpdesk.ticket"]
+        .sudo()
+        .search_count(
+            [
+                ("partner_id", "=", partner.id),
+                ("state", "not in", ("resolved", "closed")),
+            ],
+        )
     )
     return {
         "ok": True,
@@ -96,9 +103,16 @@ def lookup_invoice(env, ticket, reference):
     """Return invoice status/amount by reference, or an error if module absent."""
     if not _module_installed(env, "account"):
         return {"ok": False, "error": "module_not_installed", "module": "account"}
-    invoice = env["account.move"].sudo().search(
-        [("name", "=", reference), ("move_type", "in", ("out_invoice", "out_refund"))],
-        limit=1,
+    invoice = (
+        env["account.move"]
+        .sudo()
+        .search(
+            [
+                ("name", "=", reference),
+                ("move_type", "in", ("out_invoice", "out_refund")),
+            ],
+            limit=1,
+        )
     )
     if not invoice:
         return {"ok": True, "data": {"found": False, "reference": reference}}
@@ -120,16 +134,24 @@ def lookup_invoice(env, ticket, reference):
 
 def list_customer_recent_activity(env, ticket, email, limit=5):
     """List recent helpdesk tickets for a customer by email."""
-    partner = env["res.partner"].sudo().search(
-        [("email", "=ilike", email)],
-        limit=1,
+    partner = (
+        env["res.partner"]
+        .sudo()
+        .search(
+            [("email", "=ilike", email)],
+            limit=1,
+        )
     )
     if not partner:
         return {"ok": True, "data": {"tickets": []}}
-    tickets = env["ai.helpdesk.ticket"].sudo().search(
-        [("partner_id", "=", partner.id)],
-        limit=max(1, min(int(limit or 5), 20)),
-        order="create_date desc",
+    tickets = (
+        env["ai.helpdesk.ticket"]
+        .sudo()
+        .search(
+            [("partner_id", "=", partner.id)],
+            limit=max(1, min(int(limit or 5), 20)),
+            order="create_date desc",
+        )
     )
     return {
         "ok": True,
@@ -151,9 +173,7 @@ def list_customer_recent_activity(env, ticket, email, limit=5):
 def _module_installed(env, name):
     """Check whether an Odoo module is installed in the current DB."""
     return bool(
-        env["ir.module.module"]
-        .sudo()
-        .search_count([("name", "=", name), ("state", "=", "installed")]),
+        env["ir.module.module"].sudo().search_count([("name", "=", name), ("state", "=", "installed")]),
     )
 
 

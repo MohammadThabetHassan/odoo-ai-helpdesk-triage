@@ -7,7 +7,7 @@ import json
 import logging
 import time
 
-from odoo import _, fields
+from odoo import _
 from odoo.exceptions import UserError
 
 from . import anthropic_client
@@ -92,8 +92,7 @@ def run(env, ticket, autonomy_level, max_actions, cost_cap):
         if cost_cap > 0 and total_cost > cost_cap:
             return AgentLoopResult(
                 status="escalated",
-                reasoning=final_text
-                or _("Cost cap reached before the AI could finish."),
+                reasoning=final_text or _("Cost cap reached before the AI could finish."),
                 actions=actions,
                 cost=total_cost,
                 tokens=total_tokens,
@@ -243,22 +242,26 @@ def _record_action(
     duration_ms,
 ):
     """Persist a single tool invocation to the audit log."""
-    return env["ai.helpdesk.action"].sudo().create(
-        {
-            "ticket_id": ticket.id,
-            "sequence": sequence,
-            "tool_name": name,
-            "tool_input": json.dumps(tool_input, ensure_ascii=True),
-            "tool_result": json.dumps(result, ensure_ascii=True, default=str),
-            "succeeded": bool(result.get("ok")),
-            "error_message": result.get("error") if not result.get("ok") else False,
-            "ai_reasoning": reasoning or False,
-            "ai_confidence": ticket.ai_confidence,
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "cost": cost,
-            "duration_ms": duration_ms,
-        },
+    return (
+        env["ai.helpdesk.action"]
+        .sudo()
+        .create(
+            {
+                "ticket_id": ticket.id,
+                "sequence": sequence,
+                "tool_name": name,
+                "tool_input": json.dumps(tool_input, ensure_ascii=True),
+                "tool_result": json.dumps(result, ensure_ascii=True, default=str),
+                "succeeded": bool(result.get("ok")),
+                "error_message": result.get("error") if not result.get("ok") else False,
+                "ai_reasoning": reasoning or False,
+                "ai_confidence": ticket.ai_confidence,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "cost": cost,
+                "duration_ms": duration_ms,
+            },
+        )
     )
 
 
@@ -273,11 +276,7 @@ def _tool_result_message(use_id, result):
 
 def _collect_text(content_blocks):
     """Extract concatenated text blocks from an assistant response."""
-    return "".join(
-        b.get("text", "")
-        for b in content_blocks
-        if b.get("type") == "text"
-    ).strip()
+    return "".join(b.get("text", "") for b in content_blocks if b.get("type") == "text").strip()
 
 
 def _hash_call(name, tool_input):
@@ -288,10 +287,7 @@ def _hash_call(name, tool_input):
 
 def _initial_user_message(ticket, tools):
     """Compose the opening message describing the ticket + available tools."""
-    tool_lines = "\n".join(
-        f"- {name}: {tool['schema']['description']}"
-        for name, tool in tools.items()
-    )
+    tool_lines = "\n".join(f"- {name}: {tool['schema']['description']}" for name, tool in tools.items())
     triaged_summary = (
         f"Category: {ticket.category or 'unknown'}\n"
         f"Priority: {ticket.priority or '1'}\n"

@@ -47,7 +47,8 @@ class TestAgentEndToEnd(TransactionCase):
         Icp.set_param("ai_helpdesk_triage.anthropic_api_key", "test-key")
         Icp.set_param("ai_helpdesk_triage.redact_pii", "False")
         Icp.set_param(
-            "ai_helpdesk_triage.auto_route_confidence_threshold", "0.75",
+            "ai_helpdesk_triage.auto_route_confidence_threshold",
+            "0.75",
         )
         Icp.set_param("ai_helpdesk_triage.review_confidence_threshold", "0.5")
         Icp.set_param("ai_helpdesk_triage.daily_budget_usd", "0")
@@ -94,12 +95,10 @@ class TestAgentEndToEnd(TransactionCase):
                             "priority": "2",
                             "suggested_team": self.team.name,
                             "reasoning": (
-                                "Customer reports missing invoice; the ask is "
-                                "clear and route is unambiguous."
+                                "Customer reports missing invoice; the ask is " "clear and route is unambiguous."
                             ),
                             "suggested_reply": (
-                                "We are resending the invoice now — please check "
-                                "your inbox in a few minutes."
+                                "We are resending the invoice now — please check " "your inbox in a few minutes."
                             ),
                             "confidence": confidence,
                         },
@@ -117,8 +116,14 @@ class TestAgentEndToEnd(TransactionCase):
             "input": tool_input,
         }
 
-    def _loop_response(self, tool_uses, stop_reason="tool_use",
-                       assistant_text="", input_tokens=100, output_tokens=40):
+    def _loop_response(
+        self,
+        tool_uses,
+        stop_reason="tool_use",
+        assistant_text="",
+        input_tokens=100,
+        output_tokens=40,
+    ):
         blocks = []
         if assistant_text:
             blocks.append({"type": "text", "text": assistant_text})
@@ -198,9 +203,7 @@ class TestAgentEndToEnd(TransactionCase):
             self._loop_response(
                 [],
                 stop_reason="end_turn",
-                assistant_text=(
-                    "Customer's invoice concern is addressed. Resolution complete."
-                ),
+                assistant_text=("Customer's invoice concern is addressed. Resolution complete."),
                 input_tokens=80,
                 output_tokens=30,
             ),
@@ -267,7 +270,8 @@ class TestAgentEndToEnd(TransactionCase):
         self.assertEqual(ticket.action_ids.tool_name, "escalate_to_human")
         self.assertTrue(ticket.action_ids.succeeded)
         self.assertIn(
-            "human", (ticket.ai_resolution_reason or "").lower(),
+            "human",
+            (ticket.ai_resolution_reason or "").lower(),
         )
 
     # ------------------------------------------------------------------
@@ -276,7 +280,8 @@ class TestAgentEndToEnd(TransactionCase):
     def test_4_cost_cap_terminates_with_reason_cost_cap(self):
         """A tight cost cap forces escalation with reason cost_cap."""
         self.env["ir.config_parameter"].sudo().set_param(
-            "ai_helpdesk_triage.action_cost_cap_usd", "0.0001",
+            "ai_helpdesk_triage.action_cost_cap_usd",
+            "0.0001",
         )
         ticket = self._new_ticket()
         with patch(
@@ -312,7 +317,8 @@ class TestAgentEndToEnd(TransactionCase):
     def test_5_read_only_autonomy_filters_write_tools(self):
         """With read_only autonomy, write tools are not offered to the model."""
         self.env["ir.config_parameter"].sudo().set_param(
-            "ai_helpdesk_triage.autonomy_level", "read_only",
+            "ai_helpdesk_triage.autonomy_level",
+            "read_only",
         )
         # Autonomy category gate doesn't apply for read_only, so no cat check.
 
@@ -338,7 +344,8 @@ class TestAgentEndToEnd(TransactionCase):
     def test_6_full_autonomy_category_gate(self):
         """Full autonomy on a non-approved category raises before HTTP."""
         self.env["ir.config_parameter"].sudo().set_param(
-            "ai_helpdesk_triage.autonomy_categories", "billing",
+            "ai_helpdesk_triage.autonomy_categories",
+            "billing",
         )
         ticket = self._new_ticket(
             subject="How to add a user?",
