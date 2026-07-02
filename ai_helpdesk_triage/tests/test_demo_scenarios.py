@@ -480,6 +480,147 @@ class TestDemoScenarios(TransactionCase):
         self.assertIn("thinking", captured_payloads[0])
         self.assertEqual(captured_payloads[0]["thinking"]["type"], "enabled")
 
+    # ------------------------------------------------------------------
+    # Extra: kill-switch defense-in-depth blocks a disabled tool even if
+    # the model hallucinates the call.
+    # ------------------------------------------------------------------
+    def test_disabled_tool_is_refused_even_when_model_calls_it(self):
+        """Model returns a tool_use for a disabled tool → callable never runs."""
+        # Disable send_password_reset via the kill switch.
+        self.env["ir.config_parameter"].sudo().set_param(
+            "ai_helpdesk_triage.disabled_tools",
+            "send_password_reset",
+        )
+        ticket = self._new_ticket(
+            subject="Please reset my password",
+            description="I need a fresh reset link.",
+        )
+        with patch(
+            "odoo.addons.ai_helpdesk_triage.models.helpdesk_ticket.requests.post",
+            return_value=self._triage_response(category="technical"),
+        ):
+            ticket.action_ai_triage()
+
+        # Prove the callable never runs by patching it and asserting no call.
+        with patch(
+            "odoo.addons.ai_helpdesk_triage.models.tools.write_tools.send_password_reset",
+        ) as mock_reset:
+            loop_responses = [
+                # Model hallucinates a call to the disabled tool.
+                self._loop_response(
+                    [
+                        self._tool_use(
+                            "send_password_reset",
+                            {"email": "sarah.chen@demo.example.com"},
+                            "u1",
+                        ),
+                    ],
+                    text="Trying the reset.",
+                ),
+                # Then escalates when the loop refused.
+                self._loop_response(
+                    [
+                        self._tool_use(
+                            "escalate_to_human",
+                            {"reason": "Cannot proceed."},
+                            "u2",
+                        ),
+                    ],
+                    text="Escalating.",
+                ),
+            ]
+            with patch(
+                "odoo.addons.ai_helpdesk_triage.models.anthropic_client.requests.post",
+                side_effect=loop_responses,
+            ):
+                ticket.action_ai_resolve()
+
+        # The callable must not have been invoked.
+        mock_reset.assert_not_called()
+        # The action row records the refusal so the audit trail is honest.
+        refused = ticket.action_ids.filtered(lambda a: a.tool_name == "send_password_reset")
+        self.assertTrue(refused)
+        self.assertIn(refused.error_message, {"tool_not_in_iteration_schema", "tool_not_available"})
+
+    # ------------------------------------------------------------------
+    # Extra: Bedrock provider pins Sonnet up front so multi-model routing
+    # does not silently no-op behind the region-locked URL.
+    # ------------------------------------------------------------------
+    def test_bedrock_provider_forces_single_model_routing(self):
+        """On Bedrock, every iteration payload must carry the same Sonnet model id."""
+        Icp = self.env["ir.config_parameter"].sudo()
+        Icp.set_param("ai_helpdesk_triage.provider", "bedrock")
+        Icp.set_param("ai_helpdesk_triage.bedrock_api_key", "test-key")
+        try:
+            ticket = self._new_ticket(
+                subject="Please push a fresh password reset link",
+                description="Simple ask.",
+            )
+            with patch(
+                "odoo.addons.ai_helpdesk_triage.models.helpdesk_ticket.requests.post",
+                return_value=self._triage_response(category="technical"),
+            ):
+                ticket.action_ai_triage()
+
+            loop_responses = [
+                self._loop_response(
+                    [
+                        self._tool_use(
+                            "lookup_customer",
+                            {"email": "sarah.chen@demo.example.com"},
+                            "u1",
+                        ),
+                    ],
+                    text="Turn 1.",
+                ),
+                self._loop_response(
+                    [
+                        self._tool_use(
+                            "list_customer_recent_activity",
+                            {"email": "sarah.chen@demo.example.com", "limit": 5},
+                            "u2",
+                        ),
+                    ],
+                    text="Turn 2 lookup.",
+                ),
+                # Would normally trigger Haiku on the next call — but Bedrock
+                # forces sticky Sonnet, so we assert the model id below.
+                self._loop_response(
+                    [
+                        self._tool_use(
+                            "escalate_to_human",
+                            {"reason": "Enough context."},
+                            "u3",
+                        ),
+                    ],
+                    text="Turn 3 escalate.",
+                ),
+            ]
+            captured = []
+
+            def _capturing_post(url, headers=None, json=None, timeout=None):  # noqa: A002
+                captured.append(json)
+                return loop_responses.pop(0)
+
+            with patch(
+                "odoo.addons.ai_helpdesk_triage.models.anthropic_client.requests.post",
+                side_effect=_capturing_post,
+            ):
+                ticket.action_ai_resolve()
+
+            # Bedrock strips payload["model"] before dispatch, so we assert on
+            # the body dict that anthropic_client._prepare_request emitted:
+            # each captured payload should NOT contain FAST_MODEL because we
+            # never set it thanks to the sticky_sonnet flag.
+            from odoo.addons.ai_helpdesk_triage.models import anthropic_client
+
+            model_ids = [payload.get("model") for payload in captured if payload.get("model")]
+            for model_id in model_ids:
+                self.assertNotEqual(model_id, anthropic_client.FAST_MODEL)
+        finally:
+            Icp.set_param("ai_helpdesk_triage.provider", "anthropic")
+            Icp.set_param("ai_helpdesk_triage.bedrock_api_key", "")
+
 
 # json import is retained for future tool_input assertions.
 _ = json

@@ -97,7 +97,12 @@ def run(env, ticket, autonomy_level, max_actions, cost_cap):
     }
     final_text = ""
     seen_calls = set()
-    sticky_sonnet = False
+    # Bedrock bakes the model id into the URL and strips payload["model"]
+    # before dispatch, so mid-loop model routing would silently no-op —
+    # the loop would think it was cheaper on Haiku but every call would
+    # still hit the configured Bedrock Sonnet. Pin Sonnet up front so the
+    # cost accounting and the routing story match reality.
+    sticky_sonnet = anthropic_client.get_provider(env) == "bedrock"
 
     for iteration in range(1, max_actions + 1):
         model_id, iter_schemas = _choose_iteration_model(
@@ -191,6 +196,11 @@ def run(env, ticket, autonomy_level, max_actions, cost_cap):
         tool_results = []
         terminal_hit = False
         terminal_reason = None
+        # Defense-in-depth: the model may hallucinate a call to a tool whose
+        # schema we intentionally withheld from this iteration (kill switch,
+        # Haiku turn-scoped subset). Refuse to execute anything whose name
+        # was not in the schemas we actually sent.
+        allowed_names = {schema["name"] for schema in iter_schemas}
 
         for block in tool_uses:
             name = block.get("name")
@@ -217,7 +227,13 @@ def run(env, ticket, autonomy_level, max_actions, cost_cap):
 
             seen_calls.add(call_hash)
             tool = tools.get(name)
-            if not tool:
+            if name not in allowed_names:
+                result = {
+                    "ok": False,
+                    "error": "tool_not_in_iteration_schema",
+                    "name": name,
+                }
+            elif not tool:
                 result = {"ok": False, "error": "tool_not_available", "name": name}
             else:
                 result = _execute_tool(env, ticket, tool, tool_input)
