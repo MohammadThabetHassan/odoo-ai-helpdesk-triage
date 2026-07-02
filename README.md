@@ -155,7 +155,7 @@ The AI output is a recommendation, not a decision-maker. It may misclassify ambi
 
 ## How to Contribute
 
-Beginner teammates should pick one packet from `docs/beginner-tasks/` after Mohammad shares the repo link. Each packet is intentionally small and should be done from the contributor's own machine and GitHub identity.
+Teammates should pick one packet from `docs/tasks/` after Mohammad shares the repo link. Each packet is a self-contained feature and should be done from the contributor's own machine and GitHub identity.
 
 ```bash
 git pull

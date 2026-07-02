@@ -172,9 +172,9 @@ Mohammad owns the main agent, Anthropic integration, configuration, and core tic
 
 | GitHub | Owner | Task | Packet |
 | --- | --- | --- | --- |
-| `@rohithsunil` | Rohith Sunil | Add colored ticket tags so support users can label tickets as VIP, Escalated, etc. Rohith must accept the GitHub invite before starting. | `docs/beginner-tasks/packet-a-ticket-tags.md` |
-| `@YousufAdeel` | Yousuf Adeel | Add a customer satisfaction marker for resolved tickets, plus filter and group-by options. | `docs/beginner-tasks/packet-b-customer-satisfaction.md` |
-| `@Ahmad-hub-bot` | Ahmed Abd Ur Rehman | Add SLA deadline support, overdue detection, list highlighting, and kanban deadline display. | `docs/beginner-tasks/packet-c-sla-deadline.md` |
+| `@rohithsunil` | Rohith Sunil | Add colored ticket tags so support users can label tickets as VIP, Escalated, etc. Rohith must accept the GitHub invite before starting. | `docs/tasks/packet-a-ticket-tags.md` |
+| `@YousufAdeel` | Yousuf Adeel | Add a customer satisfaction marker for resolved tickets, plus filter and group-by options. | `docs/tasks/packet-b-customer-satisfaction.md` |
+| `@Ahmad-hub-bot` | Ahmed Abd Ur Rehman | Add SLA deadline support, overdue detection, list highlighting, and kanban deadline display. | `docs/tasks/packet-c-sla-deadline.md` |
 
 Each teammate should work from their own branch:
 
