@@ -264,6 +264,15 @@ class TestAgentEndToEnd(TransactionCase):
             result = json.loads(action.tool_result)
             self.assertTrue(result.get("ok"))
 
+        # Chatter carries a per-iteration note so a viewer can watch the
+        # agent reason turn by turn instead of only seeing a final summary.
+        iteration_notes = ticket.message_ids.filtered(
+            lambda m: "AI iteration" in (m.body or ""),
+        )
+        # 3 loop iterations (lookup + reply + end_turn) each produced an
+        # assistant text or tool call, so all 3 should be streamed.
+        self.assertEqual(len(iteration_notes), 3)
+
     # ------------------------------------------------------------------
     # 2b. Reflection gate flips a shaky resolution to escalated.
     # ------------------------------------------------------------------
@@ -367,6 +376,15 @@ class TestAgentEndToEnd(TransactionCase):
             "human",
             (ticket.ai_resolution_reason or "").lower(),
         )
+        # Escalation autofills a to-do activity with the structured
+        # what-I-tried narrative built from action_ids.
+        escalation_activity = ticket.activity_ids.filtered(
+            lambda a: "escalated" in (a.summary or "").lower(),
+        )
+        self.assertTrue(escalation_activity, "expected an escalation activity")
+        note_text = escalation_activity[0].note or ""
+        self.assertIn("escalate_to_human", note_text)
+        self.assertIn("Escalating to a human specialist.", note_text)
 
     # ------------------------------------------------------------------
     # 4. Cost cap fires mid-loop.

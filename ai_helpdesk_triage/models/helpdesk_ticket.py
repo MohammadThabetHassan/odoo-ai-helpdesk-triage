@@ -413,6 +413,43 @@ class HelpdeskTicket(models.Model):
             },
         )
 
+    def _post_agent_iteration_note(self, iteration, model_id, assistant_text, tool_uses):
+        """Post an internal-only chatter note summarizing one loop iteration.
+
+        Makes the resolution loop feel agentic to a viewer instead of a
+        black-box RPC: iteration number, which model handled the turn, the
+        assistant's own reasoning, and which tools it decided to call.
+        """
+        self.ensure_one()
+        if not assistant_text and not tool_uses:
+            return
+        pill = "info" if model_id and "haiku" in model_id else "primary"
+        header = Markup("<span class='badge text-bg-%s'>%s</span>") % (
+            pill,
+            escape(model_id or "unknown"),
+        )
+        body = Markup("<p><strong>AI iteration %d</strong> &nbsp;%s</p>") % (
+            iteration,
+            header,
+        )
+        if assistant_text:
+            body += Markup("<p>%s</p>") % escape(assistant_text)
+        if tool_uses:
+            body += Markup("<p><em>Tool calls:</em></p><ul>")
+            for use in tool_uses:
+                name = use.get("name") or "?"
+                inp = use.get("input") or {}
+                body += Markup("<li><code>%s</code>(%s)</li>") % (
+                    escape(name),
+                    escape(json.dumps(inp, ensure_ascii=True)[:200]),
+                )
+            body += Markup("</ul>")
+        self.sudo().message_post(
+            body=body,
+            message_type="notification",
+            subtype_xmlid="mail.mt_note",
+        )
+
     def _post_ai_resolution_message(self, result):
         """Post a chatter summary of the agent loop result."""
         self.ensure_one()
@@ -438,6 +475,47 @@ class HelpdeskTicket(models.Model):
             escape(result.reasoning or _("(no notes)")),
         )
         self.message_post(body=body)
+        if result.status == "escalated":
+            self._schedule_escalation_activity(result)
+
+    def _schedule_escalation_activity(self, result):
+        """Schedule a to-do activity carrying a structured what-I-tried summary.
+
+        Uses only data the loop already recorded (action_ids + reasoning +
+        termination reason). No extra API call — the assistant's last text,
+        which the loop captured as ``reasoning``, becomes the human-facing
+        recommendation.
+        """
+        self.ensure_one()
+        actions = self.action_ids.sorted("sequence")
+        lines = Markup("<p><strong>What the AI tried:</strong></p><ol>")
+        for action in actions:
+            status_pill = "success" if action.succeeded else "danger"
+            detail = action.error_message or "ok"
+            lines += Markup(
+                "<li><code>%s</code> — <span class='badge text-bg-%s'>%s</span></li>",
+            ) % (
+                escape(action.tool_name or "?"),
+                status_pill,
+                escape(detail[:120]),
+            )
+        lines += Markup("</ol>")
+        recommendation = (result.reasoning or "").strip() or _(
+            "The agent had no closing recommendation.",
+        )
+        note = lines + Markup(
+            "<p><strong>Termination reason:</strong> %s</p>" "<p><strong>Agent's closing note:</strong> %s</p>",
+        ) % (
+            escape(result.reason or "-"),
+            escape(recommendation),
+        )
+        assignee = self.team_id.member_ids[:1] if self.team_id else self.env["res.users"]
+        self.sudo().activity_schedule(
+            act_type_xmlid="mail.mail_activity_data_todo",
+            summary=_("AI escalated: review and take over"),
+            note=note,
+            user_id=assignee.id if assignee else False,
+        )
 
     def action_view_actions(self):
         """Open the AI Actions related to this ticket."""

@@ -148,6 +148,9 @@ def run(env, ticket, autonomy_level, max_actions, cost_cap):
             final_text = assistant_text
 
         tool_uses = [b for b in content_blocks if b.get("type") == "tool_use"]
+        # Stream the iteration to chatter before executing tools so the
+        # viewer sees the agent's reasoning even if a tool later crashes.
+        ticket._post_agent_iteration_note(iteration, model_id, assistant_text, tool_uses)
         if not tool_uses:
             # Assistant ended turn without tool call — treat as resolution
             # if we already ran some actions, else as escalation.
