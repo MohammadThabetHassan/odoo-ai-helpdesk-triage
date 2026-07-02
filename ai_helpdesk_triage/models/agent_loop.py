@@ -6,8 +6,9 @@ import hashlib
 import json
 import logging
 import time
+from datetime import timedelta
 
-from odoo import _
+from odoo import _, fields
 from odoo.exceptions import UserError
 
 from . import anthropic_client
@@ -108,7 +109,12 @@ def run(env, ticket, autonomy_level, max_actions, cost_cap):
             full_schemas=full_schemas,
             read_only_schemas=read_only_schemas,
         )
-        payload = _build_payload(model_id, iter_schemas, messages)
+        # Extended thinking only makes sense on the very first turn of an
+        # ambiguous ticket, where the model needs to disambiguate the ask
+        # before committing to a tool. Not supported on Bedrock in every
+        # region — the client passes it through and Bedrock ignores it.
+        use_thinking = iteration == 1 and is_ambiguous and model_id == anthropic_client.DEFAULT_MODEL
+        payload = _build_payload(model_id, iter_schemas, messages, extended_thinking=use_thinking)
         started = time.monotonic()
         response = anthropic_client.post_message(env, payload)
         elapsed_ms = int((time.monotonic() - started) * 1000)
@@ -513,7 +519,7 @@ def _filter_schemas_by_class(tools, allowed_classes):
     return [tool["schema"] for tool in tools.values() if tool.get("class") in allowed_classes]
 
 
-def _build_payload(model_id, schemas, messages):
+def _build_payload(model_id, schemas, messages, extended_thinking=False):
     """Assemble a Messages payload with prompt-cache breakpoints.
 
     System prompt and the tool schemas array are the two stable-per-loop
@@ -525,6 +531,10 @@ def _build_payload(model_id, schemas, messages):
     Bedrock on non-caching regions/models silently ignores cache_control
     and returns no cache_creation/read fields — the loop treats those as
     zero and the extra cost falls away.
+
+    ``extended_thinking``, when True, adds Anthropic's thinking budget to
+    the payload so the model can reason before its first tool call. Used
+    only when the triage step flagged the ticket as ambiguous.
     """
     system_blocks = [
         {
@@ -540,17 +550,24 @@ def _build_payload(model_id, schemas, messages):
             **tools_out[-1],
             "cache_control": {"type": "ephemeral"},
         }
-    return {
+    payload = {
         "model": model_id,
         "max_tokens": anthropic_client.DEFAULT_MAX_TOKENS,
         "system": system_blocks,
         "tools": tools_out,
         "messages": messages,
     }
+    if extended_thinking:
+        payload["thinking"] = {"type": "enabled", "budget_tokens": 4000}
+    return payload
 
 
 def _execute_tool(env, ticket, tool, tool_input):
     """Run a tool inside a savepoint so failures don't poison the loop."""
+    name = tool["schema"]["name"]
+    limited = _rate_limit_exceeded(env, ticket, name)
+    if limited is not None:
+        return limited
     callable_ = tool["callable"]
     try:
         with env.cr.savepoint():
@@ -560,8 +577,57 @@ def _execute_tool(env, ticket, tool, tool_input):
     except UserError as exc:
         return {"ok": False, "error": "user_error", "detail": str(exc)}
     except Exception as exc:  # noqa: BLE001
-        _logger.exception("Tool %s failed on ticket %s", tool["schema"]["name"], ticket.id)
+        _logger.exception("Tool %s failed on ticket %s", name, ticket.id)
         return {"ok": False, "error": "unhandled_exception", "detail": str(exc)}
+
+
+def _rate_limit_exceeded(env, ticket, tool_name):
+    """Return a rate_limited error dict when the per-customer cap has been hit.
+
+    Config is a JSON dict at ``ai_helpdesk_triage.tool_rate_limits`` shaped like
+    ``{tool_name: {"window_s": 3600, "max_calls": 5}}``. When a tool isn't
+    listed, there is no limit. The count is scoped to the current ticket's
+    customer (partner_id or partner_email) so a well-behaved customer can't
+    be blocked by a noisy neighbor.
+    """
+    raw = env["ir.config_parameter"].sudo().get_param("ai_helpdesk_triage.tool_rate_limits", "") or ""
+    if not raw:
+        return None
+    try:
+        limits = json.loads(raw)
+    except (TypeError, ValueError):
+        _logger.warning("ai_helpdesk_triage.tool_rate_limits is not valid JSON")
+        return None
+    spec = limits.get(tool_name)
+    if not isinstance(spec, dict):
+        return None
+    try:
+        window_s = int(spec.get("window_s") or 0)
+        max_calls = int(spec.get("max_calls") or 0)
+    except (TypeError, ValueError):
+        return None
+    if window_s <= 0 or max_calls <= 0:
+        return None
+    domain = [
+        ("tool_name", "=", tool_name),
+        ("succeeded", "=", True),
+        ("create_date", ">=", fields.Datetime.to_string(fields.Datetime.now() - timedelta(seconds=window_s))),
+    ]
+    if ticket.partner_id:
+        domain.append(("ticket_id.partner_id", "=", ticket.partner_id.id))
+    elif ticket.partner_email:
+        domain.append(("ticket_id.partner_email", "=ilike", ticket.partner_email))
+    else:
+        # No stable customer key — do not rate-limit anonymously.
+        return None
+    hits = env["ai.helpdesk.action"].sudo().search_count(domain)
+    if hits < max_calls:
+        return None
+    return {
+        "ok": False,
+        "error": "rate_limited",
+        "detail": f"{tool_name}: {hits} calls in the last {window_s}s (max {max_calls}).",
+    }
 
 
 def _record_action(

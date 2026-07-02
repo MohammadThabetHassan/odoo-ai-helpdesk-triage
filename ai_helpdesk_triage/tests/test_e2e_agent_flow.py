@@ -424,6 +424,113 @@ class TestAgentEndToEnd(TransactionCase):
         self.assertEqual(ticket.ai_resolution_reason, "cost_cap")
 
     # ------------------------------------------------------------------
+    # 4b. Circuit breaker refuses resolve after too many recent failures.
+    # ------------------------------------------------------------------
+    def test_4b_circuit_breaker_refuses_after_failure_burst(self):
+        """When >= threshold of recent actions in the category failed, refuse to resolve."""
+        from odoo.exceptions import UserError as _UserError
+
+        Icp = self.env["ir.config_parameter"].sudo()
+        Icp.set_param("ai_helpdesk_triage.circuit_breaker_window_seconds", "3600")
+        Icp.set_param("ai_helpdesk_triage.circuit_breaker_failure_threshold", "0.7")
+        Icp.set_param("ai_helpdesk_triage.circuit_breaker_min_actions", "3")
+
+        ticket = self._new_ticket()
+        with patch(
+            "odoo.addons.ai_helpdesk_triage.models.helpdesk_ticket.requests.post",
+            return_value=self._triage_response(),
+        ):
+            ticket.action_ai_triage()
+
+        # Seed 5 failed actions in the same category (billing) on a sibling ticket.
+        sibling = self._new_ticket()
+        sibling.category = "billing"
+        Action = self.env["ai.helpdesk.action"].sudo()
+        for i in range(5):
+            Action.create(
+                {
+                    "ticket_id": sibling.id,
+                    "sequence": i + 1,
+                    "tool_name": "resend_invoice_pdf",
+                    "tool_input": "{}",
+                    "tool_result": '{"ok": false, "error": "send_failed"}',
+                    "succeeded": False,
+                    "error_message": "send_failed",
+                },
+            )
+
+        with self.assertRaises(_UserError) as ctx:
+            ticket.action_ai_resolve()
+        self.assertIn("Circuit breaker", str(ctx.exception))
+
+    # ------------------------------------------------------------------
+    # 4c. Per-tool per-customer rate limit surfaces to the agent.
+    # ------------------------------------------------------------------
+    def test_4c_rate_limit_returns_error_without_calling_tool(self):
+        """When the rate limit is breached, the tool callable does not run."""
+        Icp = self.env["ir.config_parameter"].sudo()
+        Icp.set_param(
+            "ai_helpdesk_triage.tool_rate_limits",
+            '{"send_password_reset": {"window_s": 3600, "max_calls": 1}}',
+        )
+
+        ticket = self._new_ticket()
+        with patch(
+            "odoo.addons.ai_helpdesk_triage.models.helpdesk_ticket.requests.post",
+            return_value=self._triage_response(category="technical"),
+        ):
+            ticket.action_ai_triage()
+
+        # Seed one successful reset for this customer so the second is over the cap.
+        prior = self._new_ticket()
+        prior.partner_id = self.partner
+        self.env["ai.helpdesk.action"].sudo().create(
+            {
+                "ticket_id": prior.id,
+                "sequence": 1,
+                "tool_name": "send_password_reset",
+                "tool_input": "{}",
+                "tool_result": '{"ok": true}',
+                "succeeded": True,
+            },
+        )
+
+        loop_responses = [
+            self._loop_response(
+                [
+                    self._tool_use(
+                        "send_password_reset",
+                        {"email": "jane.demo@example.com"},
+                        "use_1",
+                    ),
+                ],
+                assistant_text="Attempting the password reset.",
+            ),
+            # After a rate-limited result the agent has no next move — escalate.
+            self._loop_response(
+                [
+                    self._tool_use(
+                        "escalate_to_human",
+                        {"reason": "rate limit hit."},
+                        "use_2",
+                    ),
+                ],
+                assistant_text="Escalating because rate limit hit.",
+            ),
+        ]
+        with patch(
+            "odoo.addons.ai_helpdesk_triage.models.anthropic_client.requests.post",
+            side_effect=loop_responses,
+        ):
+            ticket.action_ai_resolve()
+
+        # The first action must be a rate_limited row; the tool callable
+        # never fired.
+        rate_row = ticket.action_ids.filtered(lambda a: a.tool_name == "send_password_reset")
+        self.assertTrue(rate_row)
+        self.assertEqual(rate_row.error_message, "rate_limited")
+
+    # ------------------------------------------------------------------
     # 5. Read-only autonomy hides write tools from the schema.
     # ------------------------------------------------------------------
     def test_5_read_only_autonomy_filters_write_tools(self):

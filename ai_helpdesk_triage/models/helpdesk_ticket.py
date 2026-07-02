@@ -6,7 +6,7 @@ import json
 import logging
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from datetime import time as datetime_time
 
 from markupsafe import Markup, escape
@@ -298,6 +298,7 @@ class HelpdeskTicket(models.Model):
             if autonomy_level == "full":
                 ticket._ensure_category_allowed_for_full_autonomy()
             ticket._guard_daily_budget()
+            ticket._check_circuit_breaker()
 
             ticket.with_context(ai_skip_correction_log=True).write(
                 {
@@ -791,6 +792,82 @@ Confidence must be a number from 0.0 to 1.0.
                 )
                 % {"spend": spend, "budget": budget},
             )
+
+    def _check_circuit_breaker(self):
+        """Refuse resolve when recent actions for this category have failed too often.
+
+        The breaker consults the existing ai.helpdesk.action audit log:
+        if the failure ratio for the ticket's category over the configured
+        lookback window is above the threshold (and enough samples exist),
+        we raise a UserError to stop the autonomous loop and post to the
+        ticket chatter so the operator sees why. No new persistence.
+        """
+        self.ensure_one()
+        if not self.category:
+            return
+        window_seconds = int(
+            self._get_float_param(
+                "ai_helpdesk_triage.circuit_breaker_window_seconds",
+                3600.0,
+                minimum=60.0,
+            ),
+        )
+        threshold = self._get_float_param(
+            "ai_helpdesk_triage.circuit_breaker_failure_threshold",
+            0.7,
+            minimum=0.0,
+            maximum=1.0,
+        )
+        min_actions = int(
+            self._get_float_param(
+                "ai_helpdesk_triage.circuit_breaker_min_actions",
+                5.0,
+                minimum=1.0,
+            ),
+        )
+        cutoff = fields.Datetime.to_string(
+            fields.Datetime.now() - timedelta(seconds=window_seconds),
+        )
+        recent = (
+            self.env["ai.helpdesk.action"]
+            .sudo()
+            .search(
+                [
+                    ("create_date", ">=", cutoff),
+                    ("ticket_id.category", "=", self.category),
+                ],
+            )
+        )
+        total = len(recent)
+        if total < min_actions:
+            return
+        failures = len([a for a in recent if not a.succeeded])
+        ratio = failures / total
+        if ratio < threshold:
+            return
+        body = Markup(
+            "<p><strong>%s</strong></p>"
+            "<p>%d of %d recent actions in category <em>%s</em> failed "
+            "(%.0f%% &gt;= %.0f%% threshold). Refusing to run to protect "
+            "the downstream systems. Investigate the failing tool(s) before "
+            "retrying.</p>",
+        ) % (
+            escape(_("AI resolution paused by circuit breaker")),
+            failures,
+            total,
+            escape(self.category),
+            ratio * 100,
+            threshold * 100,
+        )
+        self.sudo().message_post(body=body, message_type="notification", subtype_xmlid="mail.mt_note")
+        raise UserError(
+            _(
+                "Circuit breaker open for category %(cat)s: %(fail)d of "
+                "%(total)d recent actions failed. Try again after the failing "
+                "tool is fixed.",
+            )
+            % {"cat": self.category, "fail": failures, "total": total},
+        )
 
     def _request_triage_payload(self, prompt, team_names):
         """Request tool-use output from Anthropic and parse a payload dict."""
