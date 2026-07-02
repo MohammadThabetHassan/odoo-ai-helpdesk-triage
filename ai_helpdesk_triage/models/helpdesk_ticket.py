@@ -100,6 +100,14 @@ class HelpdeskTicket(models.Model):
         group_expand="_expand_states",
     )
     category = fields.Selection(CATEGORY_SELECTION, tracking=True)
+    satisfaction = fields.Selection(
+    [
+        ("happy", "Happy"),
+        ("neutral", "Neutral"),
+        ("unhappy", "Unhappy"),
+    ],
+    string="Customer Satisfaction", 
+    )
     priority = fields.Selection(
         PRIORITY_SELECTION,
         default="1",

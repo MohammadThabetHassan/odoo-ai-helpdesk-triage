@@ -64,6 +64,7 @@
                             <field name="partner_email" readonly="1"/>
                             <field name="category"/>
                             <field name="priority" widget="priority"/>
+                            <field name="satisfaction" readonly="state not in ('resolved', 'closed')"/>
                         </group>
                         <group>
                             <field name="team_id"/>
