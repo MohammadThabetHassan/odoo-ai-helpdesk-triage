@@ -29,6 +29,10 @@ DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
 DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 DEFAULT_BEDROCK_REGION = "us-east-1"
 DEFAULT_MAX_TOKENS = 1500
+# Backwards-compatible alias for callers (agent_loop) that predate the
+# provider split. The value is used as the placeholder ``model`` on the
+# outbound payload; the Bedrock branch strips it before sending.
+DEFAULT_MODEL = DEFAULT_ANTHROPIC_MODEL
 REQUEST_TIMEOUT = (5, 60)
 MAX_RETRIES = 3
 BACKOFF_SECONDS = 1.5
