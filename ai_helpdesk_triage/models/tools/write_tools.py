@@ -43,6 +43,34 @@ SEND_PASSWORD_RESET_SCHEMA = {
     },
 }
 
+UPDATE_CUSTOMER_CONTACT_SCHEMA = {
+    "name": "update_customer_contact",
+    "description": (
+        "Update the customer's stored email or phone on their partner "
+        "record. Use only when the ticket explicitly asks to correct or "
+        "change contact info, and only after lookup_customer has confirmed "
+        "which partner you are editing. Never change contact info to a "
+        "value the customer did not themselves supply in the ticket."
+    ),
+    "input_schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "email": {
+                "type": "string",
+                "description": "New email address, when provided.",
+                "minLength": 3,
+            },
+            "phone": {
+                "type": "string",
+                "description": "New phone number, when provided.",
+                "minLength": 3,
+            },
+        },
+        "required": [],
+    },
+}
+
 POST_CUSTOMER_REPLY_SCHEMA = {
     "name": "post_customer_reply",
     "description": (
@@ -158,6 +186,41 @@ def post_customer_reply(env, ticket, body):
     return {"ok": True, "data": {"posted": True, "recipients": len(partner_ids)}}
 
 
+def update_customer_contact(env, ticket, email=None, phone=None):
+    """Change the partner's stored email or phone with an audit trail."""
+    if not ticket.partner_id:
+        return {"ok": False, "error": "no_partner"}
+    changes = {}
+    if email:
+        email = email.strip()
+        if email and email != (ticket.partner_id.email or ""):
+            changes["email"] = email
+    if phone:
+        phone = phone.strip()
+        if phone and phone != (ticket.partner_id.phone or ""):
+            changes["phone"] = phone
+    if not changes:
+        return {"ok": True, "data": {"updated": False, "reason": "no_changes"}}
+    old = {"email": ticket.partner_id.email or "", "phone": ticket.partner_id.phone or ""}
+    ticket.partner_id.sudo().write(changes)
+    ticket.sudo().message_post(
+        body=Markup("<p>%s</p><ul>%s</ul>")
+        % (
+            escape("AI updated customer contact info"),
+            Markup("").join(
+                Markup("<li><code>%s</code>: %s &rarr; %s</li>") % (escape(key), escape(old.get(key, "")), escape(val))
+                for key, val in changes.items()
+            ),
+        ),
+        message_type="notification",
+        subtype_xmlid="mail.mt_note",
+    )
+    return {
+        "ok": True,
+        "data": {"updated": True, "changes": changes},
+    }
+
+
 def _module_installed(env, name):
     return bool(
         env["ir.module.module"].sudo().search_count([("name", "=", name), ("state", "=", "installed")]),
@@ -180,6 +243,11 @@ WRITE_TOOLS = {
     "post_customer_reply": {
         "schema": POST_CUSTOMER_REPLY_SCHEMA,
         "callable": post_customer_reply,
+        "class": "write",
+    },
+    "update_customer_contact": {
+        "schema": UPDATE_CUSTOMER_CONTACT_SCHEMA,
+        "callable": update_customer_contact,
         "class": "write",
     },
 }
