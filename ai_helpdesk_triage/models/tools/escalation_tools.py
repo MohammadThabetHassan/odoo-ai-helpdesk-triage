@@ -9,10 +9,13 @@ from odoo import fields
 CREATE_ACTIVITY_SCHEMA = {
     "name": "create_team_activity",
     "description": (
-        "Schedule a to-do activity on the ticket for a member of the given team. "
-        "Use this to route the ticket to a human specialist with context and a "
-        "deadline. Prefer this over escalate_to_human when you know which team "
-        "should handle the ticket."
+        "LAST-RESORT tool. Schedule a to-do activity on the ticket for a "
+        "human specialist when NO other tool can resolve the request. Only "
+        "use for data investigations (wrong numbers, broken reports), "
+        "complex bugs, or product-knowledge questions no other tool can "
+        "answer. Do NOT use this for password resets, invoice resends, or "
+        "simple factual answers — those have dedicated write tools that you "
+        "MUST use instead."
     ),
     "input_schema": {
         "type": "object",
@@ -35,9 +38,12 @@ CREATE_ACTIVITY_SCHEMA = {
 ESCALATE_TO_HUMAN_SCHEMA = {
     "name": "escalate_to_human",
     "description": (
-        "Give up autonomous resolution and escalate the ticket to a human. Use "
-        "this when you cannot resolve the issue safely or need information you "
-        "don't have. This ends the agent loop."
+        "TERMINAL LAST-RESORT tool. Ends the loop and marks the ticket as "
+        "escalated. Only call this if a write tool actually errored and you "
+        "cannot work around it, or the request is genuinely outside every "
+        "tool's capability. Do NOT call this after a successful write action "
+        "— end your turn cleanly instead. Do NOT call this because you feel "
+        "uncertain; use a lookup tool first."
     ),
     "input_schema": {
         "type": "object",

@@ -405,17 +405,12 @@ class HelpdeskTicket(models.Model):
             "<p><strong>%s</strong></p>"
             "<ul>"
             "<li>Actions taken: %s</li>"
-            "<li>Total cost: $%.6f</li>"
-            "<li>Tokens: %s input / %s output</li>"
             "<li>Termination reason: %s</li>"
             "</ul>"
             "<p><strong>Agent notes:</strong> %s</p>",
         ) % (
             escape(title),
             len(result.actions),
-            result.cost,
-            result.tokens.get("input", 0),
-            result.tokens.get("output", 0),
             escape(result.reason or "-"),
             escape(result.reasoning or _("(no notes)")),
         )
@@ -1041,8 +1036,6 @@ Confidence must be a number from 0.0 to 1.0.
             "<li>Suggested team: %s</li>"
             "<li>Confidence: %.0f%%</li>"
             "<li>Review status: %s</li>"
-            "<li>Tokens: %s input / %s output</li>"
-            "<li>Estimated cost: $%.6f</li>"
             "</ul>"
             "<p><strong>Reasoning:</strong> %s</p>",
         ) % (
@@ -1052,9 +1045,6 @@ Confidence must be a number from 0.0 to 1.0.
             escape(team_name),
             result["confidence"] * 100,
             escape(self._selection_label("ai_review_status", result["review_status"])),
-            result["usage"].get("input_tokens", 0),
-            result["usage"].get("output_tokens", 0),
-            result["estimated_cost"],
             escape(result["reasoning"]),
         )
         if result.get("review_note"):

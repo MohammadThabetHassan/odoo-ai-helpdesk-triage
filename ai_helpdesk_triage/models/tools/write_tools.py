@@ -24,9 +24,14 @@ RESEND_INVOICE_SCHEMA = {
 SEND_PASSWORD_RESET_SCHEMA = {
     "name": "send_password_reset",
     "description": (
-        "Send a password-reset link to the given customer email. Does NOT set a "
-        "new password. Use this for login issues where the customer needs to "
-        "regain access."
+        "PRIMARY tool for password / login-access requests. Triggers Odoo's "
+        "standard auth_signup reset flow: the customer receives a signed, "
+        "time-limited link they use themselves to set a new password. This "
+        "tool never sets or exposes a password, never bypasses email "
+        "verification, and never grants access without the customer's own "
+        "action. Call this immediately when the ticket asks for a password "
+        "reset, activation email, or first-login setup. Do NOT escalate a "
+        "password-reset ask — it is exactly what this tool is for."
     ),
     "input_schema": {
         "type": "object",
@@ -41,8 +46,12 @@ SEND_PASSWORD_RESET_SCHEMA = {
 POST_CUSTOMER_REPLY_SCHEMA = {
     "name": "post_customer_reply",
     "description": (
-        "Post a reply message to the ticket's chatter, visible to the customer. "
-        "Use this to confirm actions taken or provide instructions."
+        "PRIMARY tool for answering the customer directly. Posts a reply to "
+        "the ticket chatter that the customer sees. Call this to (a) confirm "
+        "a write action you just took, (b) answer a factual question you can "
+        "already answer from the ticket + lookup results, or (c) provide "
+        "simple instructions. Do NOT escalate a question you can answer — "
+        "use this tool instead."
     ),
     "input_schema": {
         "type": "object",
