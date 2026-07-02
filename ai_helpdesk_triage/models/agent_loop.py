@@ -103,7 +103,11 @@ def run(env, ticket, autonomy_level, max_actions, cost_cap):
         usage = response.get("usage") or {}
         input_tokens = int(usage.get("input_tokens") or 0)
         output_tokens = int(usage.get("output_tokens") or 0)
-        round_cost = anthropic_client.estimate_cost(input_tokens, output_tokens)
+        round_cost = anthropic_client.estimate_cost(
+            input_tokens,
+            output_tokens,
+            model_id=payload.get("model") or anthropic_client.DEFAULT_MODEL,
+        )
         total_cost += round_cost
         total_tokens["input"] += input_tokens
         total_tokens["output"] += output_tokens

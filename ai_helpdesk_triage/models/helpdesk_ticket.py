@@ -13,7 +13,7 @@ from markupsafe import Markup, escape
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
-from . import agent_loop
+from . import agent_loop, anthropic_client
 
 _logger = logging.getLogger(__name__)
 
@@ -30,8 +30,6 @@ REQUEST_TIMEOUT = (5, 45)
 MAX_RETRIES = 3
 BACKOFF_SECONDS = 1.5
 TRANSIENT_STATUS_CODES = {408, 409, 425, 429, 500, 502, 503, 504}
-INPUT_COST_PER_MILLION = 3.00
-OUTPUT_COST_PER_MILLION = 15.00
 
 CATEGORY_SELECTION = [
     ("technical", "Technical"),
@@ -579,6 +577,7 @@ class HelpdeskTicket(models.Model):
         result["estimated_cost"] = self._estimate_cost(
             usage.get("input_tokens", 0),
             usage.get("output_tokens", 0),
+            model_id=result["model"],
         )
         return result
 
@@ -1168,11 +1167,13 @@ Confidence must be a number from 0.0 to 1.0.
         }
 
     @api.model
-    def _estimate_cost(self, input_tokens, output_tokens):
-        """Estimate ticket-level USD cost from Anthropic token counts."""
-        input_cost = (input_tokens / 1_000_000) * INPUT_COST_PER_MILLION
-        output_cost = (output_tokens / 1_000_000) * OUTPUT_COST_PER_MILLION
-        return round(input_cost + output_cost, 6)
+    def _estimate_cost(self, input_tokens, output_tokens, model_id=None):
+        """Estimate ticket-level USD cost using the shared per-model tariff."""
+        return anthropic_client.estimate_cost(
+            input_tokens,
+            output_tokens,
+            model_id or ANTHROPIC_MODEL,
+        )
 
     @api.model
     def _safe_response_text(self, response):

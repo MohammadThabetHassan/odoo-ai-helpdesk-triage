@@ -17,12 +17,15 @@ AUTONOMY_CLASSES = {
 
 
 def get_available_tools(env, autonomy_level):
-    """Return tool metadata filtered by autonomy level and module availability."""
+    """Return tool metadata filtered by autonomy level, kill-switch, and module availability."""
     allowed_classes = AUTONOMY_CLASSES.get(autonomy_level, set())
     if not allowed_classes:
         return {}
+    disabled = _get_disabled_tools(env)
     result = {}
     for name, tool in TOOL_REGISTRY.items():
+        if name in disabled:
+            continue
         if tool["class"] not in allowed_classes:
             continue
         required_module = tool.get("requires_module")
@@ -35,6 +38,12 @@ def get_available_tools(env, autonomy_level):
 def get_tool_schemas(env, autonomy_level):
     """Return the list of Anthropic tool schemas for the current autonomy."""
     return [tool["schema"] for tool in get_available_tools(env, autonomy_level).values()]
+
+
+def _get_disabled_tools(env):
+    """Read the operator-managed kill-switch list of tool names."""
+    raw = env["ir.config_parameter"].sudo().get_param("ai_helpdesk_triage.disabled_tools", "") or ""
+    return {name.strip() for name in raw.split(",") if name.strip()}
 
 
 def _module_installed(env, name):

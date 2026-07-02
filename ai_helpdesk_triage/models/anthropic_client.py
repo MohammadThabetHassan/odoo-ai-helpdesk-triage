@@ -12,6 +12,7 @@ about the key or account touches the source tree.
 
 from __future__ import annotations
 
+import logging
 import time
 
 from odoo import _
@@ -21,6 +22,8 @@ try:
     import requests
 except ImportError:  # pragma: no cover - runtime guard
     requests = None
+
+_logger = logging.getLogger(__name__)
 
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_API_VERSION = "2023-06-01"
@@ -37,8 +40,43 @@ REQUEST_TIMEOUT = (5, 60)
 MAX_RETRIES = 3
 BACKOFF_SECONDS = 1.5
 TRANSIENT_STATUS_CODES = {408, 409, 425, 429, 500, 502, 503, 504}
-INPUT_COST_PER_MILLION = 3.00
-OUTPUT_COST_PER_MILLION = 15.00
+
+# Per-model USD per million tokens (input, output). Anthropic on-demand
+# tariffs; AWS Bedrock resells at the same list price for these Claude
+# families. Unknown model IDs fall back to Sonnet baseline and log once.
+_SONNET_BASELINE = (3.00, 15.00)
+MODEL_PRICING = {
+    "claude-sonnet-4-6": _SONNET_BASELINE,
+    "claude-sonnet-4-5": _SONNET_BASELINE,
+    "claude-haiku-4-5-20251001": (0.80, 4.00),
+    "claude-haiku-4-5": (0.80, 4.00),
+    "claude-opus-4-7": (15.00, 75.00),
+    "us.anthropic.claude-sonnet-4-5-20250929-v1:0": _SONNET_BASELINE,
+    "us.anthropic.claude-haiku-4-5-20251001-v1:0": (0.80, 4.00),
+}
+# Backwards-compatible aliases for callers that read these at import time.
+INPUT_COST_PER_MILLION = _SONNET_BASELINE[0]
+OUTPUT_COST_PER_MILLION = _SONNET_BASELINE[1]
+
+_pricing_fallback_warned = set()
+
+
+def _rates_for(model_id):
+    """Return (input_rate, output_rate) USD-per-million for a model id."""
+    if not model_id:
+        return _SONNET_BASELINE
+    rates = MODEL_PRICING.get(model_id)
+    if rates is not None:
+        return rates
+    if model_id not in _pricing_fallback_warned:
+        _pricing_fallback_warned.add(model_id)
+        _logger.info(
+            "No pricing entry for model %s; falling back to Sonnet baseline " "(%.2f / %.2f per million).",
+            model_id,
+            _SONNET_BASELINE[0],
+            _SONNET_BASELINE[1],
+        )
+    return _SONNET_BASELINE
 
 
 def get_provider(env):
@@ -70,10 +108,15 @@ def get_bedrock_config(env):
     return region or DEFAULT_BEDROCK_REGION, model_id or DEFAULT_BEDROCK_MODEL
 
 
-def estimate_cost(input_tokens, output_tokens):
-    """Estimate USD cost from token counts (Sonnet pricing baseline)."""
-    input_cost = (input_tokens / 1_000_000) * INPUT_COST_PER_MILLION
-    output_cost = (output_tokens / 1_000_000) * OUTPUT_COST_PER_MILLION
+def estimate_cost(input_tokens, output_tokens, model_id=None):
+    """Estimate USD cost from token counts for a specific model.
+
+    ``model_id`` is optional for backwards compatibility with older callers;
+    when omitted, the Sonnet baseline is used.
+    """
+    input_rate, output_rate = _rates_for(model_id)
+    input_cost = (input_tokens / 1_000_000) * input_rate
+    output_cost = (output_tokens / 1_000_000) * output_rate
     return round(input_cost + output_cost, 6)
 
 

@@ -79,7 +79,7 @@ def create_team_activity(env, ticket, team_name, summary, note, deadline_days=1)
         note=note[:2000],
         user_id=assignee.id if assignee else False,
     )
-    ticket.sudo().write({"team_id": team.id})
+    ticket.with_context(ai_skip_correction_log=True).sudo().write({"team_id": team.id})
     return {
         "ok": True,
         "data": {

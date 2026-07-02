@@ -118,22 +118,32 @@ class ResConfigSettings(models.TransientModel):
         string="Auto-run Resolution After Triage",
         help=("When enabled, tickets that pass triage confidence gates trigger " "the resolution loop automatically."),
     )
+    ai_disabled_tools = fields.Char(
+        config_parameter="ai_helpdesk_triage.disabled_tools",
+        string="Disabled Tools (kill switch)",
+        help=(
+            "Comma-separated tool names to hide from the agent — the schema "
+            "is never sent, so the model cannot call them. Example: "
+            "send_password_reset,resend_invoice_pdf. Leave blank to allow all "
+            "tools permitted by the autonomy level."
+        ),
+    )
 
     def _compute_ai_spend(self):
         """Compute visible spend summaries from ticket-level telemetry."""
         Ticket = self.env["ai.helpdesk.ticket"].sudo()
         today = fields.Date.context_today(self)
-        day_start = datetime.combine(today, time.min)
-        month_start = datetime.combine(today.replace(day=1), time.min)
+        day_start = fields.Datetime.to_string(datetime.combine(today, time.min))
+        month_start = fields.Datetime.to_string(datetime.combine(today.replace(day=1), time.min))
         today_cost = sum(
-            Ticket.search(
-                [("ai_triaged_date", ">=", fields.Datetime.to_string(day_start))],
-            ).mapped("ai_total_cost"),
+            Ticket.search([("ai_triaged_date", ">=", day_start)]).mapped("ai_total_cost"),
+        ) + sum(
+            Ticket.search([("ai_resolution_end_at", ">=", day_start)]).mapped("ai_resolution_cost"),
         )
         month_cost = sum(
-            Ticket.search(
-                [("ai_triaged_date", ">=", fields.Datetime.to_string(month_start))],
-            ).mapped("ai_total_cost"),
+            Ticket.search([("ai_triaged_date", ">=", month_start)]).mapped("ai_total_cost"),
+        ) + sum(
+            Ticket.search([("ai_resolution_end_at", ">=", month_start)]).mapped("ai_resolution_cost"),
         )
         for settings in self:
             settings.ai_today_spend_usd = today_cost
