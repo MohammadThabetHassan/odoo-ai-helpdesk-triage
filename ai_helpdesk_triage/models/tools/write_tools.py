@@ -136,7 +136,18 @@ def send_password_reset(env, ticket, email):
 
 def post_customer_reply(env, ticket, body):
     """Post a customer-facing reply on the ticket chatter."""
-    partner_ids = [ticket.partner_id.id] if ticket.partner_id else []
+    partner_ids = []
+    if ticket.partner_id:
+        partner_ids.append(ticket.partner_id.id)
+    elif ticket.partner_email:
+        partner = env["res.partner"].sudo().search([("email", "=ilike", ticket.partner_email)], limit=1)
+        if partner:
+            partner_ids.append(partner.id)
+    if not partner_ids:
+        # No linked partner and no partner_email match: the reply would land
+        # only in internal chatter, leaving the customer un-notified. Surface
+        # this to the agent so it escalates instead of falsely resolving.
+        return {"ok": False, "error": "no_recipient"}
     message = Markup("<p>%s</p>") % escape(body)
     ticket.sudo().message_post(
         body=message,

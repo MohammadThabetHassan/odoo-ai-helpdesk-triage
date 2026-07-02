@@ -158,7 +158,6 @@ def run(env, ticket, autonomy_level, max_actions, cost_cap):
                 _record_action(
                     env,
                     ticket,
-                    iteration,
                     name,
                     tool_input,
                     result,
@@ -187,7 +186,6 @@ def run(env, ticket, autonomy_level, max_actions, cost_cap):
             action = _record_action(
                 env,
                 ticket,
-                iteration,
                 name,
                 tool_input,
                 result,
@@ -250,7 +248,6 @@ def _execute_tool(env, ticket, tool, tool_input):
 def _record_action(
     env,
     ticket,
-    sequence,
     name,
     tool_input,
     result,
@@ -261,6 +258,11 @@ def _record_action(
     duration_ms,
 ):
     """Persist a single tool invocation to the audit log."""
+    # Sequence must be unique per ticket. Deriving from max()+1 keeps it
+    # collision-free across parallel tool_use blocks in one API turn and
+    # across reset-and-re-resolve cycles that leave prior rows behind.
+    last = env["ai.helpdesk.action"].sudo().search([("ticket_id", "=", ticket.id)], order="sequence desc", limit=1)
+    sequence = (last.sequence or 0) + 1
     return (
         env["ai.helpdesk.action"]
         .sudo()
@@ -313,11 +315,24 @@ def _initial_user_message(ticket, tools):
         f"Triage confidence: {ticket.ai_confidence:.2f}\n"
         f"Triage reasoning: {ticket.ai_reasoning or 'n/a'}"
     )
+    redaction_enabled = ticket._get_bool_param(
+        "ai_helpdesk_triage.redact_pii",
+        default=True,
+    )
+    subject = ticket._redact_pii(ticket.name) if redaction_enabled else ticket.name
+    description = ticket._redact_pii(ticket.description) if redaction_enabled else ticket.description
+    customer_display = ticket.partner_id.display_name if ticket.partner_id else "Unknown"
+    if redaction_enabled and ticket.partner_id:
+        customer_display = ticket._redact_pii(customer_display)
+    # The Customer email line is intentionally not redacted: write tools like
+    # send_password_reset and lookup_customer need the real address, and the
+    # model reads it from this line when populating tool inputs.
+    customer_email = ticket.partner_email or (ticket.partner_id.email if ticket.partner_id else "")
     return (
-        f"Ticket #{ticket.id} — {ticket.name}\n\n"
-        f"Customer: {ticket.partner_id.display_name if ticket.partner_id else 'Unknown'}\n"
-        f"Customer email: {ticket.partner_email or (ticket.partner_id.email if ticket.partner_id else '')}\n\n"
-        f"Description:\n{ticket.description}\n\n"
+        f"Ticket #{ticket.id} — {subject}\n\n"
+        f"Customer: {customer_display}\n"
+        f"Customer email: {customer_email}\n\n"
+        f"Description:\n{description}\n\n"
         f"Triage:\n{triaged_summary}\n\n"
         f"Available tools:\n{tool_lines}\n\n"
         "Attempt to resolve or explicitly escalate."

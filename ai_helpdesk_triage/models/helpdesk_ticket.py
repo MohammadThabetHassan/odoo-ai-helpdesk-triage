@@ -268,6 +268,7 @@ class HelpdeskTicket(models.Model):
                 )
             if autonomy_level == "full":
                 ticket._ensure_category_allowed_for_full_autonomy()
+            ticket._guard_daily_budget()
 
             ticket.with_context(ai_skip_correction_log=True).write(
                 {
@@ -648,21 +649,31 @@ Confidence must be a number from 0.0 to 1.0.
             )
 
     def _guard_daily_budget(self):
-        """Stop new API calls once today's configured spend cap is reached."""
+        """Stop new API calls once today's configured spend cap is reached.
+
+        The cap is combined across triage and resolution: the README and the
+        settings help text both describe it as a single per-day guardrail.
+        """
         budget = self._get_float_param("ai_helpdesk_triage.daily_budget_usd", 0.0)
         if budget <= 0:
             return
         today = fields.Date.context_today(self)
-        day_start = datetime.combine(today, datetime_time.min)
-        spend = sum(
+        day_start = fields.Datetime.to_string(datetime.combine(today, datetime_time.min))
+        triage_spend = sum(
             self.search(
-                [("ai_triaged_date", ">=", fields.Datetime.to_string(day_start))],
+                [("ai_triaged_date", ">=", day_start)],
             ).mapped("ai_total_cost"),
         )
+        resolution_spend = sum(
+            self.search(
+                [("ai_resolution_end_at", ">=", day_start)],
+            ).mapped("ai_resolution_cost"),
+        )
+        spend = triage_spend + resolution_spend
         if spend >= budget:
             raise UserError(
                 _(
-                    "Daily AI triage budget reached: $%(spend).2f of $%(budget).2f. "
+                    "Daily AI budget reached: $%(spend).2f of $%(budget).2f. "
                     "Raise the budget or wait until tomorrow.",
                 )
                 % {"spend": spend, "budget": budget},
