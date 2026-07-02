@@ -500,12 +500,15 @@ def _choose_iteration_model(
 
     Sonnet handles the first turn (planning) and any turn that follows a
     write, an ambiguous ticket, a VIP ticket, or a prior Haiku failure.
-    Otherwise, once we've already run at least one read-tool turn and no
-    writes have happened yet, Haiku takes the next continuation with only
-    read/escalation schemas — making it structurally impossible for Haiku
-    to invoke a write it might mis-parameterize.
+    Otherwise, once we've already run *two or more* read-tool turns and
+    no writes have happened yet, Haiku takes the next continuation with
+    only read/escalation schemas — making it structurally impossible for
+    Haiku to invoke a write it might mis-parameterize. Two reads is the
+    threshold on purpose: the productive happy-path (read once, then
+    write) needs Sonnet on turn 2, and only investigations that keep
+    looking up context justify the cheaper model.
     """
-    if iteration == 1 or sticky_sonnet or is_ambiguous or urgency == "vip" or not action_tool_classes:
+    if iteration == 1 or sticky_sonnet or is_ambiguous or urgency == "vip" or len(action_tool_classes) < 2:
         return anthropic_client.DEFAULT_MODEL, full_schemas
     if any(tool_class == "write" for tool_class in action_tool_classes):
         return anthropic_client.DEFAULT_MODEL, full_schemas
