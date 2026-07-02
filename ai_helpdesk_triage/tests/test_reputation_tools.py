@@ -28,22 +28,17 @@ class TestDomainReputationTools(TransactionCase):
 
     def test_partner_scan_uses_email_or_website_filter(self):
         """Trusted-domain lookup must not materialize partners without email or website."""
-        # Seed a partner that only has a name — no email, no website.
         blank = self.env["res.partner"].create({"name": "Blank Contact"})
-        # And one that has an email — this domain should end up trusted.
         self.env["res.partner"].create(
             {"name": "Real Company", "email": "hello@realcompany.example"},
         )
         domains = _get_trusted_domains(self.env)
-        # The email-carrying partner's domain is included.
         self.assertIn("realcompany.example", domains)
-        # And the tool verdict reflects it.
         result = check_domain_reputation(
             self.env,
             self.env["ai.helpdesk.ticket"],
             "realcompany.example",
         )
         self.assertEqual(result["data"]["verdict"], "trusted")
-        # The blank partner must not have contributed anything.
         for domain in domains:
             self.assertNotIn(str(blank.id), domain)
