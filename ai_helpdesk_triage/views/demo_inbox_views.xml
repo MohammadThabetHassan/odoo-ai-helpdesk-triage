@@ -1,6 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
+    <record id="action_server_clear_demo_inbox" model="ir.actions.server">
+        <field name="name">Clear Demo Inbox</field>
+        <field name="model_id" ref="mail.model_mail_mail"/>
+        <field name="binding_model_id" ref="mail.model_mail_mail"/>
+        <field name="binding_view_types">list,kanban</field>
+        <field name="state">code</field>
+        <field name="code">env['mail.mail'].sudo().search([]).unlink()</field>
+    </record>
+
     <record id="view_ai_helpdesk_demo_inbox_list" model="ir.ui.view">
         <field name="name">ai.helpdesk.demo.inbox.list</field>
         <field name="model">mail.mail</field>
@@ -10,6 +19,13 @@
                   decoration-info="state == 'outgoing'"
                   decoration-muted="state == 'cancel'"
                   decoration-warning="state == 'exception'">
+                <header>
+                    <button name="%(action_server_clear_demo_inbox)d"
+                            type="action"
+                            string="Clear all emails"
+                            class="btn-danger"
+                            confirm="Delete every email in the inbox? Cannot be undone."/>
+                </header>
                 <field name="date"/>
                 <field name="subject"/>
                 <field name="email_from"/>

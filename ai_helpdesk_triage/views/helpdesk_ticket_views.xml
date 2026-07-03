@@ -134,6 +134,15 @@
         </field>
     </record>
 
+    <record id="action_server_delete_all_tickets" model="ir.actions.server">
+        <field name="name">Delete all tickets (demo reset)</field>
+        <field name="model_id" ref="model_ai_helpdesk_ticket"/>
+        <field name="binding_model_id" ref="model_ai_helpdesk_ticket"/>
+        <field name="binding_view_types">list,kanban</field>
+        <field name="state">code</field>
+        <field name="code">env['ai.helpdesk.ticket'].sudo().search([]).unlink()</field>
+    </record>
+
     <record id="view_ai_helpdesk_ticket_list" model="ir.ui.view">
         <field name="name">ai.helpdesk.ticket.list</field>
         <field name="model">ai.helpdesk.ticket</field>
@@ -142,6 +151,13 @@
                   decoration-danger="priority == '3' or ai_review_status == 'needs_human'"
                   decoration-warning="priority == '2' or ai_review_status == 'review_recommended'"
                   decoration-muted="state == 'closed'">
+                <header>
+                    <button name="%(action_server_delete_all_tickets)d"
+                            type="action"
+                            string="Delete all tickets"
+                            class="btn-danger"
+                            confirm="Delete every ticket and its action log? Cannot be undone."/>
+                </header>
                 <field name="name"/>
                 <field name="partner_id"/>
                 <field name="category" optional="show"/>
