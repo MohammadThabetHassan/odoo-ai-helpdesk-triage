@@ -28,6 +28,8 @@
         <field name="name">AI Resolution Report</field>
         <field name="res_model">ai.helpdesk.ticket</field>
         <field name="view_mode">pivot,graph</field>
+        <field name="domain">[('ai_resolution_status', '=', 'resolved')]</field>
+        <field name="context">{'search_default_group_category': 1}</field>
     </record>
 
     <menuitem id="menu_ai_helpdesk_resolution_report" name="Reports" parent="menu_ai_helpdesk_root" action="action_ai_helpdesk_resolution_report" sequence="30"/>
