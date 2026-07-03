@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_ai_helpdesk_demo_inbox_list" model="ir.ui.view">
+        <field name="name">ai.helpdesk.demo.inbox.list</field>
+        <field name="model">mail.mail</field>
+        <field name="arch" type="xml">
+            <list string="Demo Inbox" create="0" edit="0"
+                  decoration-success="state == 'sent'"
+                  decoration-info="state == 'outgoing'"
+                  decoration-muted="state == 'cancel'"
+                  decoration-warning="state == 'exception'">
+                <field name="date"/>
+                <field name="subject"/>
+                <field name="email_from"/>
+                <field name="email_to" optional="show"/>
+                <field name="recipient_ids" widget="many2many_tags" optional="show"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'sent'"
+                       decoration-info="state == 'outgoing'"
+                       decoration-warning="state == 'exception'"
+                       decoration-muted="state == 'cancel'"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ai_helpdesk_demo_inbox_kanban" model="ir.ui.view">
+        <field name="name">ai.helpdesk.demo.inbox.kanban</field>
+        <field name="model">mail.mail</field>
+        <field name="arch" type="xml">
+            <kanban class="o_kanban_dashboard" create="0" edit="0">
+                <field name="state"/>
+                <templates>
+                    <t t-name="card">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <field name="subject" class="fw-bold fs-5"/>
+                            <field name="state" widget="badge"
+                                   decoration-success="state == 'sent'"
+                                   decoration-info="state == 'outgoing'"
+                                   decoration-warning="state == 'exception'"
+                                   decoration-muted="state == 'cancel'"/>
+                        </div>
+                        <div class="small text-muted">
+                            <div><i class="fa fa-user me-1" title="From"/>from <field name="email_from"/></div>
+                            <div><i class="fa fa-paper-plane me-1" title="To"/>to <field name="email_to"/></div>
+                            <div><i class="fa fa-clock-o me-1" title="Sent at"/><field name="date"/></div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <record id="view_ai_helpdesk_demo_inbox_search" model="ir.ui.view">
+        <field name="name">ai.helpdesk.demo.inbox.search</field>
+        <field name="model">mail.mail</field>
+        <field name="arch" type="xml">
+            <search string="Search Demo Inbox">
+                <field name="subject"/>
+                <field name="email_from"/>
+                <field name="email_to"/>
+                <separator/>
+                <filter string="Sent" name="sent" domain="[('state','=','sent')]"/>
+                <filter string="Queued (SMTP off)" name="exception" domain="[('state','=','exception')]"/>
+                <filter string="Outgoing" name="outgoing" domain="[('state','=','outgoing')]"/>
+                <separator/>
+                <filter string="Password Resets" name="pwd"
+                        domain="[('subject','ilike','password')]"/>
+                <filter string="Invoice Emails" name="invoice"
+                        domain="[('subject','ilike','invoice')]"/>
+                <group>
+                    <filter string="State" name="group_state" context="{'group_by': 'state'}"/>
+                    <filter string="Sender" name="group_from" context="{'group_by': 'email_from'}"/>
+                    <filter string="Date" name="group_date" context="{'group_by': 'date'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_ai_helpdesk_demo_inbox" model="ir.actions.act_window">
+        <field name="name">Demo Inbox</field>
+        <field name="res_model">mail.mail</field>
+        <field name="view_mode">list,kanban,form</field>
+        <field name="search_view_id" ref="view_ai_helpdesk_demo_inbox_search"/>
+        <field name="context">{'search_default_group_state': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No emails yet</p>
+            <p>
+                Run <b>AI Resolve</b> on a ticket. Every email the agent's tools
+                trigger — password reset link from <code>send_password_reset</code>,
+                invoice PDF notification from <code>resend_invoice_pdf</code>, and
+                the customer-facing reply from <code>post_customer_reply</code> —
+                lands here with the exact HTML body the customer would receive.
+            </p>
+            <p>
+                SMTP is intentionally not configured on the demo instance, so mails
+                queue with state <code>exception</code>. That is not a failure —
+                the mail was captured but did not leave the machine, which is
+                exactly what you want during a demo. Click any row to see the
+                rendered body.
+            </p>
+        </field>
+    </record>
+
+</odoo>

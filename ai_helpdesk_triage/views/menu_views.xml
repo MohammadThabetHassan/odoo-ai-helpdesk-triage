@@ -6,6 +6,8 @@
 
     <menuitem id="menu_ai_helpdesk_teams" name="Teams" parent="menu_ai_helpdesk_root" action="action_ai_helpdesk_team" sequence="20"/>
 
+    <menuitem id="menu_ai_helpdesk_demo_inbox" name="Demo Inbox" parent="menu_ai_helpdesk_root" action="action_ai_helpdesk_demo_inbox" sequence="25"/>
+
     <menuitem id="menu_ai_helpdesk_config" name="Configuration" parent="menu_ai_helpdesk_root" sequence="90" groups="ai_helpdesk_triage.group_helpdesk_manager"/>
 
     <menuitem id="menu_ai_helpdesk_config_settings" name="Settings" parent="menu_ai_helpdesk_config" action="action_ai_helpdesk_config_settings" sequence="10"/>
