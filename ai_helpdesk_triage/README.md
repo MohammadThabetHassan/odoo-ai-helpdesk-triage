@@ -223,13 +223,14 @@ When AI triage or resolution runs, Odoo sends the provider:
 - Ticket subject (redacted if `redact_pii` is on)
 - Ticket description (redacted if `redact_pii` is on)
 - Customer display name if set (redacted if `redact_pii` is on)
-- Customer email (NOT redacted — write tools need it, but the tool that could exfiltrate it (`update_customer_contact`) is hidden under redaction)
+- Resolve loop only: customer email (NOT redacted — write tools need it, but the tool that could exfiltrate it (`update_customer_contact`) is hidden under redaction)
+- Resolve loop only: tool results returned to the model (for example `lookup_customer` returns the partner name, email and phone; `find_similar_tickets` results are redacted)
 - Names of active `ai.helpdesk.team` records
 - Instructions and the tool schemas
 
 Odoo does **not** send the stored API key to chatter, logs, or the browser.
 
-The reflection gate re-reads the conversation and honors the same redaction guarantees.
+The reflection gate re-sends the same conversation, so it carries exactly what the loop already sent.
 
 For UAE PDPL, GDPR, or similar regimes, deployers should document the LLM provider as a subprocessor where applicable, configure retention and regional policies with the vendor, and avoid sending sensitive ticket content without a lawful basis.
 
@@ -266,7 +267,7 @@ python odoo-bin -c odoo.conf -d ai_helpdesk_test -u ai_helpdesk_triage \
 make test
 ```
 
-**Current suite: 96 tests, 0 failed.** Coverage layout:
+**Current suite: 74 tests, 0 failed.** Coverage layout:
 
 | Test file | Coverage |
 |---|---|

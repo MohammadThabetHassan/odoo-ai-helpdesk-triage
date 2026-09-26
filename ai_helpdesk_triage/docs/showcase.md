@@ -395,4 +395,4 @@ Every claim above is exercised by an automated test:
 CI runs the whole suite against a fresh Odoo 19.0 + Postgres 16 checkout
 on every push to `main` — see the CI badge on the repo home.
 
-**Current status: 96 tests, 0 failed, 0 errors.**
+**Current status: 74 tests, 0 failed, 0 errors.**
