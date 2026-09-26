@@ -6,7 +6,7 @@
 [![License: LGPL-3](https://img.shields.io/badge/License-LGPL--3.0-blue.svg)](LICENSE)
 [![Odoo 19](https://img.shields.io/badge/Odoo-19.0-875A7B)](https://www.odoo.com)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB)](https://www.python.org)
-[![Tests 96 passing](https://img.shields.io/badge/tests-96%20passing-brightgreen)](#tests-and-ci)
+[![Tests 74 passing](https://img.shields.io/badge/tests-74%20passing-brightgreen)](#tests-and-ci)
 
 ---
 
@@ -181,15 +181,15 @@ The cron **AI Helpdesk: Auto-triage new tickets** is installed inactive by defau
 
 When the AI runs, Odoo sends the provider only:
 
-- Ticket subject (redacted if `redact_pii` is on)
-- Ticket description (redacted if `redact_pii` is on)
-- Customer display name (redacted if `redact_pii` is on)
+- Ticket subject, description and customer display name (emails and phone-like values masked if `redact_pii` is on; names are not redacted)
+- Resolve loop only: the customer email address in clear (tools such as `lookup_customer` and `send_password_reset` need it; the triage call does not include it)
+- Resolve loop only: tool results returned to the model (for example `lookup_customer` returns the partner name, email and phone, `lookup_invoice` returns the amount and partner name, `resend_invoice_pdf` returns the recipient email, `send_password_reset` returns the user login, and `list_customer_recent_activity` returns past ticket subjects; `find_similar_tickets` results are redacted)
 - Names of active `ai.helpdesk.team` records
 - Instructions and the tool schemas
 
-Nothing else — no tenant data, no chatter history, no credentials — leaves the server. With PII redaction on (default), obvious emails and phone-like values in the ticket are replaced with `[REDACTED_EMAIL]` and `[REDACTED_PHONE]` before the call. Tools that need the raw values (`update_customer_contact`) are hidden from the schema entirely under redaction, so the model cannot be asked for a value it never saw.
+Nothing outside this list is sent: no chatter history and no credentials. With PII redaction on (default), obvious emails and phone-like values in the ticket are replaced with `[REDACTED_EMAIL]` and `[REDACTED_PHONE]` before the call. Tools that need the raw values (`update_customer_contact`) are hidden from the schema entirely under redaction, so the model cannot be asked for a value it never saw.
 
-The reflection gate re-reads the conversation and shares the same redaction guarantees. For GDPR / UAE PDPL contexts, deployers should still document the provider as a subprocessor, configure retention with the vendor, and avoid sending sensitive ticket content without a lawful basis.
+The reflection gate re-sends the same conversation, so it carries exactly what the loop already sent. For GDPR / UAE PDPL contexts, deployers should still document the provider as a subprocessor, configure retention with the vendor, and avoid sending sensitive ticket content without a lawful basis.
 
 ---
 
@@ -210,9 +210,9 @@ make test     # Odoo module test suite
 make eval     # golden-set evaluation harness
 ```
 
-Every push triggers GitHub Actions to install Odoo 19 + Postgres 16 from scratch, install this addon, and run the same three commands. The badge at the top of this README reflects the latest run on `main`.
+Every push to `main` (and every pull request against it) triggers GitHub Actions to install Odoo 19 + Postgres 16 from scratch, install this addon, and run the same three commands. The badge at the top of this README reflects the latest run on `main`.
 
-**Current test suite: 96 tests, 0 failed, 0 errors.** Coverage spans:
+**Current test suite: 74 tests, 0 failed, 0 errors.** Coverage spans:
 - Structured triage output parsing (validation, retry, fenced-JSON fallback)
 - Workflow state machine + idempotency + human overrides
 - Security groups + ACL
